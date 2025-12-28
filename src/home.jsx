@@ -2,8 +2,24 @@ import React from "react";
 import { PATTERNS } from "./question.jsx";
 import { useNavigate } from "react-router-dom";
 
+
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = React.useState(
+    window.innerWidth <= breakpoint
+  );
+
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
 // App.jsx 内（どこでもOK）に追加
 function Home({ initialPatternId, initialCount, onStart }) {
+  const isMobile = useIsMobile();
   const [query, setQuery] = React.useState("");
   const [count, setCount] = React.useState(Number.isFinite(initialCount) ? initialCount : 10);
   const navigate = useNavigate();
@@ -103,9 +119,17 @@ function Home({ initialPatternId, initialCount, onStart }) {
       </div>
 
       {/* 2カラム：左=一覧、右=詳細 */}
-      <div style={ui.grid}>
+      <div
+        style={{
+          ...ui.grid,
+          gridTemplateColumns: isMobile ? "1fr" : "1.2fr 1fr",
+        }}
+      >
         {/* 一覧 */}
-        <div style={ui.list}>
+        <div style={{
+          ...ui.list,
+          maxHeight: isMobile ? "220px" : "calc(100vh - 220px)",
+        }}>
           {filtered.length === 0 ? (
             <div style={ui.empty}>
               条件に一致するパターンがありません。検索/フィルタを変更してください。
