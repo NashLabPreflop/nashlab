@@ -40,3 +40,14 @@
 .read-the-docs {
   color: #888;
 }
+
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: light;
+  }
+}
+
+html, body {
+  background: #ffffff;
+  color: #111111;
+}

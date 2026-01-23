@@ -3,6 +3,111 @@ import { PATTERNS } from "./question.jsx";
 import { useNavigate } from "react-router-dom";
 
 
+// 問題選択画面　レイアウト
+const TABLE_SIZES = {
+  3: ["BTN", "SB", "BB"],
+  4: ["CO", "BTN", "SB", "BB"],
+  5: ["HJ", "CO", "BTN", "SB", "BB"],
+  6: ["LJ", "HJ", "CO", "BTN", "SB", "BB"],
+  7: ["UTG", "LJ", "HJ", "CO", "BTN", "SB", "BB"],
+  8: ["UTG", "UTG+1", "LJ", "HJ", "CO", "BTN", "SB", "BB"],
+  9: ["UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB", "BB"],
+};
+
+function getStack(stacks, pos, idx) {
+  if (Array.isArray(stacks)) return stacks[idx];
+  return stacks?.[pos];
+}
+
+function polarToXY(r, deg) {
+  const rad = (deg * Math.PI) / 180;
+  return { left: `${50 + r * Math.cos(rad)}%`, top: `${50 + r * Math.sin(rad)}%` };
+}
+
+function circularLayout(positions, radius = 40) {
+  const step = 360 / positions.length;
+  const start = -90;
+  const coords = {};
+  positions.forEach((pos, i) => {
+    coords[pos] = polarToXY(radius, start + step * i);
+  });
+  return coords;
+}
+
+function normalizeStacksForPositions(stacks, positions, fallbackEff = 0) {
+  if (Array.isArray(stacks)) {
+    return positions.map((_, i) => (Number.isFinite(stacks[i]) ? stacks[i] : fallbackEff));
+  }
+  if (stacks && typeof stacks === "object") {
+    const out = {};
+    for (const p of positions) out[p] = Number.isFinite(stacks[p]) ? stacks[p] : fallbackEff;
+    return out;
+  }
+  // 無ければ全員fallback
+  return Object.fromEntries(positions.map((p) => [p, fallbackEff]));
+}
+
+function StackPreview({ tableSize, stacks, heroPos, heroHand }) {
+  const positions = TABLE_SIZES[tableSize] || TABLE_SIZES[6];
+  const coords = React.useMemo(() => circularLayout(positions, 40), [positions]);
+
+  // heroHand は表示したいときだけ
+  return (
+    <div style={pv.wrap}>
+      <div style={pv.circle}>
+        {positions.map((pos, idx) => {
+          const stackBB = getStack(stacks, pos, idx);
+          const isHero = pos === heroPos;
+
+          return (
+            <div
+              key={pos}
+              style={{
+                ...pv.seat,
+                ...coords[pos],
+                ...(isHero ? pv.seatHero : null),
+              }}
+            >
+              <div style={pv.pos}>{pos}</div>
+              <div style={pv.stack}>{Number.isFinite(stackBB) ? `${stackBB}bb` : "—"}</div>
+              {isHero && heroHand && <div style={pv.hand}>{heroHand}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const pv = {
+  wrap: { width: "100%", display: "flex", justifyContent: "center" },
+  circle: {
+    position: "relative",
+    width: "min(100%, 420px)",
+    aspectRatio: "3 / 2",
+    borderRadius: "50%",
+    background: "radial-gradient(circle at 50% 50%, #065f46 0%, #064e3b 60%, #052e2b 100%)",
+    boxShadow: "inset 0 0 0 8px rgba(255,255,255,0.06)",
+    color: "#444",
+  },
+  seat: {
+    position: "absolute",
+    transform: "translate(-50%, -50%)",
+    minWidth: 70,
+    textAlign: "center",
+    padding: 8,
+    borderRadius: 12,
+    background: "rgba(255,255,255,.92)",
+    border: "1px solid #e5e7eb",
+    color: "#444",
+  },
+  seatHero: { border: "2px solid #111" },
+  pos: { fontSize: 12, fontWeight: 800 },
+  stack: { fontSize: 12, opacity: 0.85 },
+  hand: { marginTop: 2, fontSize: 12, fontWeight: 900, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" },
+};
+
+
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = React.useState(
     window.innerWidth <= breakpoint
@@ -17,31 +122,58 @@ function useIsMobile(breakpoint = 768) {
   return isMobile;
 }
 
+function buildRandomSet(groupId, count, prevFirst = null) {
+  const group = PATTERNS.find((p) => p.id === groupId) || PATTERNS[0];
+  const spots = group.spots || [];
+  const spotOrder = sampleN(spots, spots.length); // シャッフル
+
+  const hands = sampleN(ALL_HANDS, count);
+  return hands.map((hand, i) => {
+    const spot = spots.length ? spotOrder[i % spotOrder.length] : group;
+    return spots.length ? buildQuestionFromSpot(group, spot, hand)
+                        : buildQuestionFromPattern(group, hand);
+  });
+}
+
 // App.jsx 内（どこでもOK）に追加
 function Home({ initialPatternId, initialCount, onStart }) {
   const isMobile = useIsMobile();
-  const [query, setQuery] = React.useState("");
-  const [count, setCount] = React.useState(Number.isFinite(initialCount) ? initialCount : 10);
   const navigate = useNavigate();
+
+  // ----------------------------
+  // UI state
+  // ----------------------------
+  const [query, setQuery] = React.useState("");
+  const [count, setCount] = React.useState(
+    Number.isFinite(initialCount) ? initialCount : 10
+  );
 
   // フィルタ（id に "ante"/"chase" が含まれるか）
   const [onlyAnte, setOnlyAnte] = React.useState(false);
   const [onlyChase, setOnlyChase] = React.useState(false);
 
+  // ----------------------------
+  // List filtering
+  // ----------------------------
   const filtered = React.useMemo(() => {
     const q = (query || "").trim().toLowerCase();
-    return (PATTERNS || [])
-      .filter((p) => {
-        if (onlyAnte && !String(p.id).toLowerCase().includes("ante")) return false;
-        if (onlyChase && !String(p.id).toLowerCase().includes("chase")) return false;
-        if (!q) return true;
+    return (PATTERNS || []).filter((p) => {
+      if (onlyAnte && !String(p.id).toLowerCase().includes("ante")) return false;
+      if (onlyChase && !String(p.id).toLowerCase().includes("chase")) return false;
+      if (!q) return true;
 
-        const hay = `${p.id} ${p.label}`.toLowerCase();
-        return hay.includes(q);
-      });
+      const hay = `${p.id} ${p.label}`.toLowerCase();
+      return hay.includes(q);
+    });
   }, [query, onlyAnte, onlyChase]);
 
-  const [selectedId, setSelectedId] = React.useState(initialPatternId ?? (PATTERNS?.[0]?.id ?? ""));
+  // ----------------------------
+  // Selection
+  // ----------------------------
+  const [selectedId, setSelectedId] = React.useState(
+    initialPatternId ?? (PATTERNS?.[0]?.id ?? "")
+  );
+
   const selected = React.useMemo(
     () => (PATTERNS || []).find((p) => p.id === selectedId) || null,
     [selectedId]
@@ -50,9 +182,65 @@ function Home({ initialPatternId, initialCount, onStart }) {
   // 初期選択がフィルタで消えた時に、先頭へ寄せる
   React.useEffect(() => {
     if (!filtered.length) return;
-    if (!filtered.some((p) => p.id === selectedId)) setSelectedId(filtered[0].id);
+    if (!filtered.some((p) => p.id === selectedId)) {
+      setSelectedId(filtered[0].id);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered.map((p) => p.id).join("|")]);
+
+  // ----------------------------
+  // Derived: tableSize (stacksの人数から推定)
+  // ----------------------------
+  const derivedTableSize = React.useMemo(() => {
+    if (!selected || typeof selected.questionBuilder !== "function") return 6;
+
+    // questionBuilder が参照するのでダミーhand（固定でOK）
+    const qb = selected.questionBuilder("AsKs");
+    const n = Array.isArray(qb?.stacks) ? qb.stacks.length : 0;
+
+    if (n >= 3 && n <= 9) return n; // 3〜9 はそのまま使う
+    return 6; // 想定外は安全に 6
+  }, [selected]);
+
+  // ----------------------------
+  // Preview (questionBuilder から 1問だけ生成してスタック表示)
+  // ※ selected/derivedTableSize の後に定義する（重要）
+  // ----------------------------
+  const preview = React.useMemo(() => {
+    if (!selected || typeof selected.questionBuilder !== "function") return null;
+
+    const q = selected.questionBuilder("AsKs");
+    return {
+      pos: q?.pos,
+      eff: q?.eff,
+      facing: q?.facing,
+      stacksRaw: q?.stacks,
+      hand: "AsKs",
+    };
+  }, [selected]);
+
+  const previewPositions = React.useMemo(() => {
+    return TABLE_SIZES[derivedTableSize] || TABLE_SIZES[6];
+  }, [derivedTableSize]);
+
+  const previewStacks = React.useMemo(() => {
+    if (!preview) return null;
+    return normalizeStacksForPositions(
+      preview.stacksRaw,
+      previewPositions,
+      preview.eff ?? 0
+    );
+  }, [preview, previewPositions]);
+
+  // ----------------------------
+  // Handlers
+  // ----------------------------
+  const startSelected = React.useCallback(() => {
+    if (!selectedId) return;
+    navigate("/quiz", {
+      state: { patternId: selectedId, count, tableSize: derivedTableSize },
+    });
+  }, [navigate, selectedId, count, derivedTableSize]);
 
   return (
     <div style={ui.wrap}>
@@ -68,7 +256,9 @@ function Home({ initialPatternId, initialCount, onStart }) {
         <button
           style={ui.primaryBtn}
           disabled={!selectedId}
-          onClick={() => navigate("/quiz", { state: { patternId: selectedId, count } })}
+          onClick={() =>
+            navigate("/quiz", { state: { patternId: selectedId, count, tableSize: derivedTableSize } })
+          }
         >
           選択中で開始
         </button>
@@ -150,7 +340,7 @@ function Home({ initialPatternId, initialCount, onStart }) {
                     <div style={ui.cardTitle}>{p.label}</div>
                     <div style={ui.badges}>
                       {String(p.id).toLowerCase().includes("ante") && (
-                        <span style={ui.badge}>ante</span>
+                        <span style={ui.badge}>BBante</span>
                       )}
                       {String(p.id).toLowerCase().includes("chase") && (
                         <span style={ui.badge}>chase</span>
@@ -176,9 +366,9 @@ function Home({ initialPatternId, initialCount, onStart }) {
                 <button
                   style={ui.primaryBtn}
                   disabled={!selectedId}
-                  onClick={() => {
-                    navigate("/quiz", { state: { patternId: selectedId, count } });
-                  }}
+                  onClick={() =>
+                    navigate("/quiz", { state: { patternId: selectedId, count, tableSize: derivedTableSize } })
+                  }
                 >
 
                   このパターンで開始
@@ -215,6 +405,24 @@ function Home({ initialPatternId, initialCount, onStart }) {
                     {/* （PATTERNS は id/label を保持 :contentReference[oaicite:1]{index=1}） */}
                   </span>
                 </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800, marginBottom: 8 }}>
+                    スタック状況プレビュー（{derivedTableSize}-max）
+                  </div>
+
+                  {preview && previewStacks ? (
+                    <StackPreview
+                      tableSize={derivedTableSize}
+                      stacks={previewStacks}
+                      heroPos={preview.pos}
+                      heroHand={preview.hand}
+                    />
+                  ) : (
+                    <div style={ui.empty}>このパターンはスタック情報のプレビューを生成できません。</div>
+                  )}
+                </div>
+
               </div>
             </>
           ) : (

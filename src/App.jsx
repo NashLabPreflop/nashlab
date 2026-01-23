@@ -12,22 +12,46 @@ import { PATTERNS } from "./question.jsx";
  */
 
 /* ================= 基本 ================= */
-const POSITIONS6 = ["UTG", "MP", "CO", "BTN", "SB", "BB"];
-const POSITIONS9 = ["UTG", "+1", "+2", "LJ", "MP", "CO", "BTN", "SB", "BB"];
+const TABLE_SIZES = {
+  3: ["BTN", "SB", "BB"],
+  4: ["CO", "BTN", "SB", "BB"],
+  5: ["HJ", "CO", "BTN", "SB", "BB"],
+  6: ["LJ", "HJ", "CO", "BTN", "SB", "BB"],
+  7: ["UTG", "LJ", "HJ", "CO", "BTN", "SB", "BB"],
+  8: ["UTG", "UTG+1", "LJ", "HJ", "CO", "BTN", "SB", "BB"],
+  9: ["UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB", "BB"],
+};
+
+
 const BLIND_SIZES = { SB: 0.5, BB: 1 };
 
 const RANKS = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
 const RANK_INDEX = Object.fromEntries(RANKS.map((r, i) => [r, i]));
 
-
-// POT計算
-const NUM_PLAYERS = 6;
-
-function calcBasePotBB() {
-  return BLIND_SIZES.SB + BLIND_SIZES.BB; // 0.5 + 1 = 1.5
+function getStack(stacks, pos, idx) {
+  if (Array.isArray(stacks)) return stacks[idx];
+  return stacks[pos];
 }
 
-function calcExtraPotByPatternId(patternId, facing) {
+function circularLayout(positions, radius = 40) {
+  const step = 360 / positions.length;
+  console.log(positions.length);
+  console.log(positions);
+  const start = -90;
+  const coords = {};
+
+  positions.forEach((pos, i) => {
+    coords[pos] = polarToXY(radius, start + step * i);
+  });
+
+  return coords;
+}
+
+function calcBasePotBB() {
+  return Number(BLIND_SIZES.SB + BLIND_SIZES.BB); // 0.5 + 1 = 1.5
+}
+
+function calcExtraPotByPatternId(patternId, facing, positions) {
   const id = String(patternId || "");
   const facingSize = String(facing || "");
   console.log(facingSize);
@@ -37,7 +61,7 @@ function calcExtraPotByPatternId(patternId, facing) {
 
   // "chase" を含む場合：1人につき0.25BB
   if (lower.includes("chase")) {
-    extra += 0.25 * NUM_PLAYERS; // 1.5
+    extra += 0.25 * positions.length;
   }
 
   // "Ante" を含む場合：+1BB（合計）
@@ -52,11 +76,11 @@ function calcExtraPotByPatternId(patternId, facing) {
     extra += size;
   }
 
-  return extra;
+  return Number(extra);
 }
 
-function calcTotalPotBB(patternId, facing) {
-  return calcBasePotBB() + calcExtraPotByPatternId(patternId, facing);
+function calcTotalPotBB(patternId, facing, positions) {
+  return calcBasePotBB() + calcExtraPotByPatternId(patternId, facing, positions);
 }
 
 /**
@@ -66,6 +90,8 @@ function calcTotalPotBB(patternId, facing) {
  */
 function expandPairRange(token) {
   const m = token.match(/^([2-9TJQKA])\1(?:-([2-9TJQKA])\2)?$/i);
+  const RANKS = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
+  const RANK_INDEX = Object.fromEntries(RANKS.map((r, i) => [r, i]));
   console.log(m)
   if (!m) return [];
   const start = m[1].toUpperCase();
@@ -77,6 +103,86 @@ function expandPairRange(token) {
   for (let i = Math.min(s, e); i <= Math.max(s, e); i++) out.push(RANKS[i] + RANKS[i]);
   console.log(out)
   return out;
+}
+
+function buildQuestionFromSpot(group, spot, hand) {
+  const qParams = spot.questionBuilder(hand);
+  const optionsBB = (qParams.options || []).map(normalizeOptionToBB);
+
+  const probs = probsByRangeSpec(optionsBB, hand, spot.bands || [], "fold");
+  const answerIndex = answerByMaxProb(optionsBB, probs, "fold");
+
+  return {
+    id: `${group.id}::${spot.id}-${qParams.eff}bb-${hand}`,
+    groupId: group.id,
+    spotId: spot.id,
+    hero: { hand, pos: qParams.pos, eff: qParams.eff, facing: qParams.facing },
+    stacks: qParams.stacks,
+    options: optionsBB,
+    answer: answerIndex,
+    note: `${group.label} / ${spot.label} / ${hand} → ${optionsBB[answerIndex]}`,
+  };
+}
+
+function pickOne(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function buildRandomSet(groupId, count, prevFirst = null) {
+  const group = PATTERNS.find((p) => p.id === groupId) || PATTERNS[0];
+  const spots = group.spots || [];
+
+  // 保険：spots が無い旧形式PATTERNも動くように
+  const isLegacy = !Array.isArray(spots) || spots.length === 0;
+
+  const poolHands = ALL_HANDS;
+  const hands = sampleN(poolHands, count);
+
+  if (prevFirst && hands.length && hands[0] === prevFirst) {
+    const swap = hands.findIndex((h) => h !== prevFirst);
+    if (swap > 0) [hands[0], hands[swap]] = [hands[swap], hands[0]];
+  }
+
+  return hands.map((hand) => {
+    if (isLegacy) {
+      // 旧：groupがそのまま spot 相当
+      return buildQuestionFromPattern(group, hand);
+    }
+    const spot = pickOne(spots);
+    return buildQuestionFromSpot(group, spot, hand);
+  });
+}
+
+// function buildRandomSet(patternId, count, prevFirstHand = null) {
+//   const pattern = PATTERNS.find((p) => p.id === patternId) || PATTERNS[0];
+
+//   // 要望に合わせて「全169」からランダム出題
+//   const poolHands = ALL_HANDS;
+//   const picked = sampleN(poolHands, count);
+
+//   // 直前の1問目と同じになりやすい場合の軽い回避
+//   if (prevFirstHand && picked.length > 0 && picked[0] === prevFirstHand) {
+//     const swap = picked.findIndex((h) => h !== prevFirstHand);
+//     if (swap > 0) [picked[0], picked[swap]] = [picked[swap], picked[0]];
+//   }
+
+//   return picked.map((hand) => buildQuestionFromPattern(pattern, hand));
+// }
+
+function usePrefersDark() {
+  const [dark, setDark] = React.useState(
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+
+  React.useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = e => setDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return dark;
 }
 
 function expandNonPairRange(token) {
@@ -155,7 +261,7 @@ function parseRangeSpec(spec) {
       if (!hands.length) continue; // パース不能なら捨てる
     }
     // ペア（66, 88-77）
-    else if (/^[2-9TJQKA]\1(?:-([2-9TJQKA])\2)?$/i.test(handPart)) {
+    else if (/^([2-9TJQKA])\1(?:-([2-9TJQKA])\2)?$/i.test(handPart)) {
       hands = expandPairRange(handPart);
     }
     // non-pair range（AQo-AJo など）※先頭ランク固定
@@ -187,10 +293,17 @@ function parseRangeSpec(spec) {
   return map;
 }
 
+function normalizeRangeText(s) {
+  return String(s || "")
+    .replace(/[‐-‒–—−ー－]/g, "-")  // ダッシュ系を全部 "-"
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s*-\s*/g, "-");      // "88 - 77" を "88-77" に
+}
+
 /* range文字列 -> Map をキャッシュ（毎回parseしない） */
 const __rangeCache = new Map();
 function getRangeMap(rangeStr) {
-  const key = (rangeStr || "").replace(/\s+/g, " ").trim();
+  const key = normalizeRangeText(rangeStr).replace(/\s+/g, " ").trim();
   console.log(key);
   if (!key) return new Map();
   if (__rangeCache.has(key)) return __rangeCache.get(key);
@@ -349,14 +462,6 @@ function polarToXY(r, deg) {
   return { left: `${50 + r * Math.cos(rad)}%`, top: `${50 + r * Math.sin(rad)}%` };
 }
 
-function sixMaxLayout() {
-  const angles = { UTG: -90, MP: -30, CO: 30, BTN: 90, SB: 150, BB: -150 };
-  const r = 40;
-  const coords = {};
-  for (const p of POSITIONS6) coords[p] = polarToXY(r, angles[p]);
-  return coords;
-}
-
 function badgeStyleFor(action) {
   if (!action) return { background: "#e5e7eb", color: "#111" };
   const a = action.toLowerCase();
@@ -383,7 +488,9 @@ function normalizeOptionToBB(opt) {
 function parseFacingOpen(facing) {
   const s = String(facing || "").trim();
   // 例: "BTN open 2x", "BTN open 2bb", "BTN open 2.2x"
-  const m = s.match(/^(UTG|MP|CO|BTN|SB|BB)\s+open\s+([0-9]+(?:\.[0-9]+)?)\s*(x|bb)\b/i);
+  // const m = s.match(/^(UTG|MP|CO|BTN|SB|BB)\s+open\s+([0-9]+(?:\.[0-9]+)?)\s*(x|bb)\b/i);
+  const m = s.match(/^(UTG(?:\+\d)?|LJ|MP|CO|BTN|SB|BB)\s+open\s+([0-9.]+)\s*(x|bb)/i);
+
   if (!m) return null;
 
   const pos = m[1].toUpperCase();
@@ -396,10 +503,16 @@ function parseFacingOpen(facing) {
   return { pos, amountBB };
 }
 
-function PokerTable({ stacks, heroPos, heroHand, action, facing, patternId }) {
-  const coords = useMemo(() => sixMaxLayout(), []);
+function PokerTable({ positions, stacks, heroPos, heroHand, action, facing, patternId }) {
+  const coords = useMemo(
+    () => circularLayout(positions),
+     [positions]
+  );
   const facingOpen = useMemo(() => parseFacingOpen(facing), [facing]);
-  const potBB = useMemo(() => calcTotalPotBB(patternId, facing), [patternId, facing]);
+  const potBB = useMemo(
+    () => calcBasePotBB() + calcExtraPotByPatternId(patternId, facing, positions),
+    [patternId, facing, positions]
+  );
 
   return (
     <div style={styles.tableWrap}>
@@ -408,28 +521,23 @@ function PokerTable({ stacks, heroPos, heroHand, action, facing, patternId }) {
           <div style={styles.potLabel}>POT</div>
           <div style={styles.potValue}>{Math.round(potBB * 100) / 100}bb</div>
         </div>
-        {POSITIONS6.map((pos) => {
+        {positions.map((pos, idx) => {
           const c = coords[pos];
-          const isHero = pos === heroPos;
+          const heroIndex = positions.indexOf(heroPos);
+          const isHero = idx === heroIndex;
           const isSB = pos === "SB";
           const isBB = pos === "BB";
           const isOpener = facingOpen?.pos === pos;
           const openAmt = facingOpen?.amountBB ?? 0;
           const badge = badgeStyleFor(isHero ? action : null);
+          const stackBB = getStack(stacks, pos, idx);
+          console.log(stackBB);
+
 
           return (
-            <div
-              key={pos}
-              style={{
-                ...styles.seat,
-                ...c,
-                ...(isHero ? styles.seatHero : {}),
-                ...(isSB ? styles.sbSeat : {}),
-                ...(isBB ? styles.bbSeat : {}),
-              }}
-            >
+            <div key={pos} style={{ ...styles.seat, ...coords[pos] }}>
               <div style={styles.seatPos}>{pos}</div>
-              <div style={styles.seatStack}>[{stacks[pos]}bb]</div>
+              <div style={styles.seatStack}>[{stackBB}bb]</div>
               {isHero && <div style={styles.seatHand}>{heroHand}</div>}
               {isHero && action && (
                 <div style={{ ...styles.badge, background: badge.background, color: badge.color }}>{action}</div>
@@ -492,247 +600,157 @@ function ProbBarChart({ options, probs }) {
   );
 }
 
-/* ================= PATTERNS（回答は range 文字列で定義） ================= */
-// const PATTERNS = [
-//   {
-//     id: "btn-open ante",
-//     label: "BTN Open（Unopened）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "BTN",
-//       eff: 40,
-//       facing: "Unopened",
-//       stacks: { UTG: 40, MP: 40, CO: 40, BTN: 40, SB: 40, BB: 40 },
-//       options: ["Fold", "Open 2.2x"],
-//     }),
-//     bands: [
-//       {
-//         action: "open",
-//         min: 0.05,
-//         range: `
-//               66+, 55:0.998, 44:0.686, A5s+, A4s:0.996, A3s:0.994, A2s:0.997, AKo, AQo:0.992, AJo-A7o,
-//               A6o:0.809, A5o:0.999, A4o:0.012, K6s+, K5s:0.999, K4s, K3s:0.489, K2s:0.004,
-//               KTo+, K9o:0.499, Q8s+, Q7s:0.999, Q6s:0.995, Q5s:0.990, Q3s:0.001, QTo+, Q9o:0.493,
-//               J8s+, J7s:0.999, J6s:0.001, JTo, J9o:0.054, T9s, T8s:0.999, T7s:0.972, T9o:0.351,
-//               98s, 97s:0.989, 87s:0.999, 76s:0.314, 65s:0.006, 54s:0.001
-//         `.replace(/\n/g, " "),
-//       },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+// プリフロレンジを表示するモーダル機能
+function fillStyle(p) {
+  const ratio = Math.max(0, Math.min(1, Number(p ?? 0)));
 
-//   },
-//   {
-//     id: "sb-vs-btn ante",
-//     label: "SB vs BTN 2x",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "SB",
-//       eff: 25,
-//       facing: "BTN open 2x",
-//       stacks: { UTG: 25, MP: 25, CO: 25, BTN: 25, SB: 25, BB: 25 },
-//       options: ["Fold", "Call", "3bet 7bb", "Jam 25bb"],
-//     }),
-//     bands: [
-//           { action: "JAM", min: 0.05, range: `JJ:0.598, TT:0.760, 99:0.883, 88:0.314, 77:0.024, 66:0.131, 55:0.081, 44:0.677, 33:0.688, 22:0.630, AQs:0.390, ATs:0.001, A8s:0.758, A6s:0.071, A5s:0.588, A4s:0.432, A3s:0.608, A2s:0.546, AKo:0.801, AQo:0.989, AJo:0.375, ATo:0.017, KQs:0.750, KJs:0.608, KTs:0.865, K9s:0.011, K8s:0.006, K7s:0.032, K6s:0.028, K4s:0.040, KQo:0.444, KJo:0.913, KTo:0.489, QJs:0.698, QTs:0.928, Q9s:0.221, Q8s:0.069, QJo:0.254, QTo:0.006, JTs:0.354, J8s:0.004, JTo:0.043, T9s:0.053, 76s:0.001` },
-//           { action: "3bet", min: 0.05, range: `QQ+, JJ:0.198, TT:0.233, 99:0.028, 88:0.254, 77:0.258, 66:0.220, 55:0.437, 44:0.098, 33:0.021, AKs, AQs:0.389, AJs:0.806, ATs:0.122, A8s:0.048, A7s:0.559, A6s:0.903, A5s:0.409, A4s:0.439, A3s:0.364, A2s:0.416, AKo:0.199, AQo:0.011, AJo:0.446, ATo:0.769, A9o:0.104, A8o:0.006, A6o:0.002, A5o:0.120, A4o:0.001, A3o:0.001, KQs:0.032, KJs:0.013, KTs:0.004, K9s:0.218, K8s:0.255, K7s:0.559, K6s:0.667, K5s:0.760, K4s:0.005, K3s:0.079, K2s:0.001, KQo:0.538, KJo:0.054, KTo:0.335, QJs:0.076, Q9s:0.398, Q8s:0.263, Q7s:0.026, Q6s:0.003, Q5s:0.081, Q4s:0.007, QJo:0.359, QTo:0.027, JTs:0.096, J9s:0.379, J8s:0.057, J7s:0.008, J6s:0.012, J5s:0.002, JTo:0.107, T9s:0.789, T8s:0.081, T7s:0.064, T6s:0.003, 98s:0.604, 87s:0.229, 76s:0.043, 54s:0.015` },
-//           { action: "call", min: 0.05, range: `JJ:0.204, TT:0.008, 99:0.088, 88:0.432, 77:0.719, 66:0.650, 55:0.482, 44:0.221, 33:0.101, 22:0.006, AQs:0.221, AJs:0.194, ATs:0.877, A9s, A8s:0.194, A7s:0.441, A6s:0.025, A5s:0.003, A4s:0.130, A3s:0.027, A2s:0.037, AJo:0.179, ATo:0.215, A9o:0.128, KQs:0.219, KJs:0.379, KTs:0.131, K9s:0.770, K8s:0.647, K7s:0.064, K6s:0.008, K5s:0.001, KQo:0.018, KJo:0.033, KTo:0.072, QJs:0.227, QTs:0.071, Q9s:0.380, Q8s:0.319, Q7s:0.002, QJo:0.270, QTo:0.012, JTs:0.550, J9s:0.614, J8s:0.009, J7s:0.001, JTo:0.021, T9s:0.155, T8s:0.001, 98s:0.121, 97s:0.001, 87s:0.010, 86s:0.001, 76s:0.001, 64s:0.002, 54s:0.009` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.001)})
-//   },
-//   {
-//     id: "btn open2 ante",
-//     label: "BTN Open（Unopened）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "BTN",
-//       eff: 15,
-//       facing: "Unopened",
-//       stacks: { UTG: 15, MP: 15, CO: 15, BTN: 15, SB: 15, BB: 15 },
-//       options: ["Fold","open 2bb", "Jam 15bb"],
-//     }),
-//     bands: [
-//           { action: "Jam", min: 0.05, range: `QTs, JTs, KTs, A2s-A8s, QT-KT, A5o-AJo, KQo, 22-88, 99: 0.003, 67s: 0.3, 78s: 0.55` },
-//           { action: "open", min: 0.05, range: `AQo+, TT+, 99: 0.997, A2o-A5o, KJs+, KJo+, QJs, 54s: 0.50, A9s+, K6s-K9s, Q9s` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "75bb eff UTG open chase",
-//     label: "UTG 75bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "UTG",
-//       eff: 75,
-//       facing: "Unopened",
-//       stacks: { UTG: 75, MP: 75, CO: 75, BTN: 75, SB: 75, BB: 75 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `TT+, 99:0.999, 88-77, 66:0.994, 55:0.957, 44:0.045, ATs+, A9s:0.999, A8s, A7s:0.999, A6s-A5s, A4s:0.993, A3s:0.995, A2s:0.994, ATo+, A9o:0.992, A8o:0.459, A7o:0.006, A6o:0.003, A5o:0.350, A4o:0.002, KQs, KJs:0.999, KTs:0.998, K9s:0.985, K8s:0.996, K7s:0.893, K6s:0.992, K5s:0.880, K4s:0.468, K2s:0.003, KQo, KJo:0.975, KTo:0.718, QJs:0.994, QTs:0.997, Q9s:0.926, Q8s:0.074, Q6s:0.001, QJo:0.713, QTo:0.011, JTs:0.995, J9s:0.928, J8s:0.105, T9s:0.976, T8s:0.761, 98s:0.327, 97s:0.036, 76s:0.374, 65s:0.118, 54s:0.007` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "75bb eff HJ open chase",
-//     label: "HJ 75bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "HJ",
-//       eff: 75,
-//       facing: "Unopened",
-//       stacks: { UTG: 75, MP: 75, CO: 75, BTN: 75, SB: 75, BB: 75 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `TT+, 99:0.999, 88-77, 66:0.996, 55:0.992, 44:0.691, ATs+, A9s:0.999, A8s:0.999, A7s:0.997, A6s-A5s, A4s:0.999, A3s, A2s:0.999, ATo+, A9o:0.999, A8o:0.988, A7o:0.436, A6o:0.008, A5o:0.885, A4o:0.029, A3o:0.001, A2o:0.001, KQs, KJs:0.999, KTs, K9s:0.997, K8s:0.996, K7s:0.995, K6s:0.984, K5s:0.996, K4s:0.923, K3s:0.134, K2s:0.008, KTo+, QJs:0.999, QTs:0.998, Q9s:0.982, Q8s:0.893, Q7s:0.083, Q6s:0.100, Q5s:0.020, QJo:0.993, QTo:0.445, JTs:0.998, J9s:0.986, J8s:0.779, J7s:0.001, JTo:0.643, T9s:0.991, T8s:0.955, T7s:0.711, 98s:0.935, 97s:0.771, 87s:0.373, 76s:0.801, 75s:0.022, 65s:0.353, 54s:0.002` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "75bb eff CO open chase",
-//     label: "CO 75bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "CO",
-//       eff: 75,
-//       facing: "Unopened",
-//       stacks: { UTG: 75, MP: 75, CO: 75, BTN: 75, SB: 75, BB: 75 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `77+, 66:0.999, 55:0.999, 44:0.999, 33:0.639, A2s+, A7o+, A6o:0.843, A5o, A4o:0.853, A3o:0.011, A2o:0.001, KTs+, K9s:0.999, K8s:0.999, K7s:0.999, K6s:0.995, K5s:0.997, K4s:0.996, K3s:0.984, K2s:0.934, KTo+, K9o:0.986, K8o:0.081, K7o:0.001, K6o:0.001, QTs+, Q9s:0.999, Q8s:0.998, Q7s:0.972, Q6s:0.985, Q5s:0.818, Q4s:0.370, Q3s:0.001, QTo+, Q9o:0.022, JTs:0.998, J9s:0.999, J8s:0.987, J7s:0.969, J6s:0.004, J5s:0.011, JTo:0.998, T9s, T8s:0.991, T7s:0.964, T6s:0.089, T9o:0.428, T8o:0.001, 98s:0.986, 97s:0.876, 96s:0.167, 87s:0.993, 86s:0.812, 85s:0.017, 76s:0.980, 75s:0.737, 65s:0.902, 54s:0.876` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "75bb eff BTN open chase",
-//     label: "BTN 75bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "BTN",
-//       eff: 75,
-//       facing: "Unopened",
-//       stacks: { UTG: 75, MP: 75, CO: 75, BTN: 75, SB: 75, BB: 75 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `22+, A2s+, A2o+, K7s+, K6s:0.999, K5s-K3s, K2s:0.998, K9o+, K8o:0.999, K7o-K6o, K5o:0.996, K4o:0.239, K3o:0.002, QJs:0.999, QTs, Q9s:0.999, Q8s:0.999, Q7s, Q6s:0.999, Q5s:0.997, Q4s:0.992, Q3s, Q2s:0.997, Q9o+, Q8o:0.987, Q7o:0.485, Q6o:0.003, JTs, J9s:0.999, J8s, J7s:0.999, J6s:0.997, J5s:0.999, J4s:0.996, J3s:0.998, J2s:0.927, J9o+, J8o:0.966, J7o:0.001, T9s, T8s:0.999, T7s:0.999, T6s:0.996, T5s:0.963, T4s:0.957, T3s:0.268, T2s:0.002, T9o, T8o:0.996, T7o:0.578, 98s:0.999, 97s:0.999, 96s, 95s:0.971, 94s:0.082, 98o:0.955, 97o:0.100, 87s:0.994, 86s:0.995, 85s:0.967, 84s:0.248, 82s:0.001, 87o:0.385, 86o:0.001, 76s:0.998, 75s:0.969, 74s:0.974, 73s:0.001, 76o:0.787, 65s, 64s:0.986, 63s:0.068, 65o:0.003, 54s:0.999, 53s:0.959, 43s:0.774, 42s:0.001` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "75bb eff BTN-vsUTG chase",
-//     label: "BTN 75bb eff BTN-vsUTG（クラブマッチ））",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "BTN",
-//       eff: 75,
-//       facing: "UTG open 2.3x",
-//       stacks: { UTG: 75, MP: 75, CO: 75, BTN: 75, SB: 75, BB: 75 },
-//       options: ["Fold","call", "3bet 6bb", "3bet 10bb"],
-//     }),
-//     bands: [
-//           { action: "3bet 10bb", min: 0.05, range: `KK:0.415, QQ:0.999, JJ:0.926, TT:0.821, 99:0.984, 88:0.911, 77:0.938, 66:0.647, 55:0.781, 44:0.164, 33:0.051, AKs:0.359, AQs:0.991, AJs:0.846, ATs:0.998, A9s:0.940, A8s:0.810, A7s:0.369, A6s:0.211, A5s:0.554, A4s:0.004, A3s:0.016, A2s:0.429, AKo:0.207, AQo:0.402, AJo:0.897, ATo:0.276, KQs:0.992, KJs:0.969, KTs:0.996, K9s:0.742, K8s:0.257, K7s:0.026, K6s:0.042, KQo:0.737, KJo:0.028, QJs:0.850, QTs:0.979, JTs:0.870, J9s:0.001, J8s:0.002, T9s:0.887, T8s:0.001, T7s:0.033, 98s:0.005, 87s:0.161, 86s:0.001, 85s:0.002, 76s:0.414, 65s:0.810, 54s:0.137` },
-//           { action: "3bet 6bb", min: 0.05, range: `AA:0.181, KK:0.284, JJ:0.074, TT:0.178, 99:0.015, 88:0.080, 77:0.049, 66:0.076, 55:0.037, 44:0.053, AKs:0.336, AQs:0.006, AJs:0.154, ATs:0.001, A9s:0.036, A8s:0.003, A7s:0.008, A6s:0.157, A5s:0.394, A4s:0.282, A3s:0.028, A2s:0.121, AKo:0.337, AQo:0.057, AJo:0.022, ATo:0.196, A4o:0.001, A3o:0.001, KQs:0.004, KJs:0.011, KTs:0.002, K9s:0.032, K8s:0.261, K7s:0.175, K6s:0.016, K5s:0.049, K4s:0.308, K3s:0.019, K2s:0.003, KQo:0.083, KJo:0.063, KTo:0.036, K7o:0.001, QJs:0.129, QTs:0.004, Q9s:0.065, Q8s:0.105, JTs:0.003, J9s:0.022, T7s:0.001, 98s:0.001, 87s:0.007, 76s:0.002, 75s:0.022, 65s:0.087, 54s:0.113, 53s:0.001` },
-//           { action: "call", min: 0.05, range: `KK:0.415, QQ:0.999, JJ:0.926, TT:0.821, 99:0.984, 88:0.911, 77:0.938, 66:0.647, 55:0.781, 44:0.164, 33:0.051, AKs:0.359, AQs:0.991, AJs:0.846, ATs:0.998, A9s:0.940, A8s:0.810, A7s:0.369, A6s:0.211, A5s:0.554, A4s:0.004, A3s:0.016, A2s:0.429, AKo:0.207, AQo:0.402, AJo:0.897, ATo:0.276, KQs:0.992, KJs:0.969, KTs:0.996, K9s:0.742, K8s:0.257, K7s:0.026, K6s:0.042, KQo:0.737, KJo:0.028, QJs:0.850, QTs:0.979, JTs:0.870, J9s:0.001, J8s:0.002, T9s:0.887, T8s:0.001, T7s:0.033, 98s:0.005, 87s:0.161, 86s:0.001, 85s:0.002, 76s:0.414, 65s:0.810, 54s:0.137` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "50bb eff UTG open chase",
-//     label: "UTG 50bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "UTG",
-//       eff: 50,
-//       facing: "Unopened",
-//       stacks: { UTG: 50, MP: 50, CO: 50, BTN: 50, SB: 50, BB: 50 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `99+, 88:0.997, 77:0.999, 66:0.999, 55:0.729, A9s+, A8s:0.999, A7s, A6s:0.999, A5s:0.999, A4s:0.999, A3s, A2s:0.997, ATo+, A9o:0.996, A8o:0.451, A7o:0.055, A5o:0.946, A4o:0.073, A3o:0.002, KJs+, KTs:0.999, K9s:0.995, K8s:0.978, K7s:0.995, K6s:0.970, K5s:0.904, K4s:0.350, K3s:0.011, KJo+, KTo:0.583, K5o:0.001, QJs, QTs:0.999, Q9s:0.964, Q8s:0.085, Q7s:0.012, QJo:0.483, QTo:0.003, JTs:0.997, J9s:0.714, T9s:0.959, T8s:0.710, 98s:0.013, 76s:0.005` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "50bb eff HJ open chase",
-//     label: "HJ 50bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "HJ",
-//       eff: 50,
-//       facing: "Unopened",
-//       stacks: { UTG: 50, MP: 50, CO: 50, BTN: 50, SB: 50, BB: 50 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `99+, 88:0.999, 77, 66:0.997, 55:0.997, 44:0.618, 33:0.001, A8s+, A7s:0.999, A6s-A2s, A8o+, A7o:0.931, A6o:0.023, A5o:0.998, A4o:0.253, A3o:0.003, A2o:0.001, KQs, KJs:0.999, KTs, K9s:0.991, K8s, K7s:0.997, K6s:0.998, K5s:0.992, K4s:0.911, K3s:0.361, K2s:0.001, KJo+, KTo:0.999, K9o:0.001, QJs, QTs:0.999, Q9s:0.992, Q8s:0.923, Q7s:0.006, Q6s:0.294, QJo:0.998, QTo:0.537, JTs:0.998, J9s:0.984, J8s:0.867, JTo:0.466, T9s:0.986, T8s:0.934, T7s:0.581, 98s:0.808, 97s:0.158, 87s:0.078, 86s:0.006, 76s:0.385, 65s:0.693` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "50bb eff CO open chase",
-//     label: "CO 50bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "CO",
-//       eff: 50,
-//       facing: "Unopened",
-//       stacks: { UTG: 50, MP: 50, CO: 50, BTN: 50, SB: 50, BB: 50 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `66+, 55:0.999, 44:0.998, 33:0.415, 22:0.007, A2s+, A7o+, A6o:0.997, A5o, A4o:0.994, A3o:0.320, A2o:0.009, KTs+, K9s:0.999, K8s:0.999, K7s:0.996, K6s:0.999, K5s:0.996, K4s:0.996, K3s, K2s:0.989, KTo+, K9o:0.998, K8o:0.006, K7o:0.003, K6o:0.001, K4o:0.001, QJs:0.999, QTs, Q9s:0.994, Q8s, Q7s:0.951, Q6s:0.613, Q5s:0.966, Q4s:0.287, Q3s:0.001, QJo, QTo:0.998, Q9o:0.030, JTs, J9s:0.994, J8s:0.998, J7s:0.971, J6s:0.006, J5s:0.154, J4s:0.035, J2s:0.001, JTo:0.999, J9o:0.001, T9s:0.998, T8s:0.996, T7s:0.911, T6s:0.009, T9o:0.531, 98s:0.988, 97s:0.975, 96s:0.215, 87s:0.919, 86s:0.910, 76s:0.966, 75s:0.210, 65s:0.864, 54s:0.168` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "50bb eff BTN open chase",
-//     label: "BTN 50bb eff Open（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "BTN",
-//       eff: 50,
-//       facing: "Unopened",
-//       stacks: { UTG: 50, MP: 50, CO: 50, BTN: 50, SB: 50, BB: 50 },
-//       options: ["Fold","open 2.3bb"],
-//     }),
-//     bands: [
-//           { action: "open", min: 0.05, range: `55+, 44:0.999, 33-22, A2s+, A2o+, KTs+, K9s:0.999, K8s-K6s, K5s:0.997, K4s-K2s, K6o+, K5o:0.995, K4o:0.096, K3o:0.001, K2o:0.002, Q8s+, Q7s:0.999, Q6s:0.992, Q5s:0.998, Q4s:0.996, Q3s:0.998, Q2s:0.968, Q9o+, Q8o:0.986, Q7o:0.559, Q6o:0.004, JTs, J9s:0.998, J8s:0.998, J7s:0.998, J6s:0.994, J5s:0.996, J4s:0.950, J3s:0.520, J2s:0.290, J9o+, J8o:0.990, T7s+, T6s:0.999, T5s:0.927, T4s:0.848, T3s:0.386, T9o, T8o:0.991, T7o:0.440, 98s, 97s:0.999, 96s:0.992, 95s:0.742, 94s:0.025, 98o:0.972, 97o:0.004, 87s:0.997, 86s:0.991, 85s:0.996, 87o:0.428, 76s:0.999, 75s:0.991, 74s:0.618, 76o:0.203, 65s:0.999, 64s:0.862, 63s:0.001, 65o:0.004, 54s:0.998, 53s:0.978, 52s:0.001, 43s:0.003` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-//   {
-//     id: "50bb eff BBvsUTG chase",
-//     label: "BB 50bb eff BBvsUTG（クラブマッチ）",
-//     questionBuilder: (hand) => ({
-//       hand,
-//       pos: "BB",
-//       eff: 50,
-//       facing: "UTG open 2.3x",
-//       stacks: { UTG: 50, MP: 50, CO: 50, BTN: 50, SB: 50, BB: 50 },
-//       options: ["Fold","call", "3bet 8.5bb"],
-//     }),
-//     bands: [
-//           { action: "3bet 8.5bb", min: 0.05, range: `AA, KK:0.664, AKs:0.818, AQs:0.012, A9s:0.038, A7s:0.163, A6s:0.261, A5s:0.118, A4s:0.691, A3s:0.815, A2s:0.412, AKo:0.542, AQo:0.017, ATo:0.038, A9o:0.010, A8o:0.061, A7o:0.533, A6o:0.151, A5o:0.349, A4o:0.523, A3o:0.534, A2o:0.057, KTs:0.003, K7s:0.096, K6s:0.004, K5s:0.423, K4s:0.044, K3s:0.001, K2s:0.100, KJo:0.047, KTo:0.033, K9o:0.103, K8o:0.046, K7o:0.010, K6o:0.039, K5o:0.038, K4o:0.023, K3o:0.018, K2o:0.002, QJs:0.009, QTs:0.001, Q9s:0.015, Q8s:0.039, Q5s:0.004, Q4s:0.001, Q2s:0.095, QJo:0.029, QTo:0.066, Q9o:0.067, Q8o:0.051, JTs:0.005, J9s:0.001, J7s:0.141, J5s:0.155, J3s:0.040, J2s:0.007, T7s:0.001, T6s:0.006, T3s:0.005, T9o:0.001, T8o:0.013, 98s:0.030, 97s:0.055, 95s:0.038, 93s:0.003, 92s:0.001, 98o:0.015, 87s:0.080, 83s:0.001, 87o:0.042, 76s:0.008, 76o:0.027, 75o:0.025, 62s:0.043, 54s:0.055, 52s:0.003, 43s:0.025` },
-//           { action: "call", min: 0.05, range: `KK:0.336, QQ-22, AKs:0.182, AQs:0.988, AJs-ATs, A9s:0.962, A8s, A7s:0.837, A6s:0.738, A5s:0.881, A4s:0.308, A3s:0.184, A2s:0.585, AKo:0.458, AQo:0.983, AJo, ATo:0.962, A9o:0.989, A8o:0.933, A7o:0.418, A6o:0.342, A5o:0.605, A4o:0.452, A3o:0.025, KJs+, KTs:0.997, K9s:0.992, K8s, K7s:0.904, K6s:0.995, K5s:0.576, K4s:0.939, K3s:0.991, K2s:0.886, KQo, KJo:0.953, KTo:0.967, K9o:0.722, K8o:0.281, K7o:0.177, QJs:0.991, QTs:0.999, Q9s:0.984, Q8s:0.960, Q7s:0.999, Q6s:0.999, Q5s:0.990, Q4s:0.991, Q3s:0.999, Q2s:0.898, QJo:0.971, QTo:0.928, Q9o:0.616, Q8o:0.150, JTs:0.994, J9s:0.999, J8s:0.997, J7s:0.857, J6s:0.991, J5s:0.449, J4s:0.725, J3s:0.418, J2s:0.075, JTo:0.994, J9o:0.600, J8o:0.003, T9s:0.999, T8s:0.995, T7s:0.999, T6s:0.986, T5s:0.989, T4s:0.298, T3s:0.078, T2s:0.001, T9o:0.988, T8o:0.707, 98s:0.966, 97s:0.944, 96s:0.998, 95s:0.284, 94s:0.332, 93s:0.136, 92s:0.171, 98o:0.798, 87s:0.918, 86s:0.993, 85s:0.998, 84s:0.977, 83s:0.002, 87o:0.618, 86o:0.001, 76s:0.992, 75s, 74s:0.988, 73s:0.461, 72s:0.006, 76o:0.967, 75o:0.257, 65s, 64s:0.999, 63s:0.974, 62s:0.683, 65o:0.978, 64o:0.141, 54s:0.945, 53s:0.997, 52s:0.982, 54o:0.517, 43s:0.971, 42s:0.994, 32s:0.734` },
-//     ],
-//     answerBuilder: (pattern, hand, _weight, optionsBB) =>
-//       ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
-//   },
-// ];
+  return {
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    height: "100%",          // ← 縦100%
+    width: `${ratio * 100}%`, // ← 横に割合で塗る
+    backgroundColor: "#ef4444", // 赤（画像に近い）
+    pointerEvents: "none",
+  };
+}
+function RangeMatrixModal({
+  open,
+  onClose,
+  title,
+  bands,
+  options,
+  focusKey,
+  setFocusKey,
+}) {
+  if (!open) return null;
+
+  const optionKeys = (options || []).map(actionKeyFromOption);
+
+  // best / actionKey のタブ
+  const tabs = ["best", ...optionKeys];
+
+  const data = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < RANKS.length; i++) {
+      const r1 = RANKS[i];
+      const row = [];
+      for (let j = 0; j < RANKS.length; j++) {
+        const r2 = RANKS[j];
+
+        // 169ハンド表記に変換（対角=ペア、上=スーテッド、下=オフ）
+        let hand;
+        if (i === j) hand = r1 + r2;
+        else if (i < j) hand = r1 + r2 + "s";
+        else hand = r2 + r1 + "o";
+
+        const probs = probsByRangeSpec(options, hand, bands || [], "fold");
+
+        // best action を決める
+        let bestKey = optionKeys[0] || "fold";
+        let best = -1;
+        for (const k of optionKeys) {
+          const p = Number(probs?.[k] ?? 0);
+          if (p > best) {
+            best = p;
+            bestKey = k;
+          }
+        }
+
+        row.push({
+          hand,
+          probs,
+          bestKey,
+          bestP: best < 0 ? 0 : best,
+        });
+      }
+      rows.push(row);
+    }
+    return rows;
+  }, [bands, options]);
+
+function cellStyle(cell) {
+  const key = focusKey === "best" ? cell.bestKey : focusKey;
+  const optLabel =
+    (options || []).find(o => actionKeyFromOption(o) === key) || key;
+
+  const base = badgeStyleFor(optLabel);
+  const p = Number(cell.probs?.[key] ?? 0);
+
+  // 参加頻度（0〜1）
+  const ratio =
+    focusKey === "best"
+      ? Math.max(0, Math.min(1, cell.bestP))
+      : Math.max(0, Math.min(1, p));
+
+  const percent = (ratio * 100).toFixed(1); // 例: 39.5
+
+  return {
+    ...styles.matrixCell,
+    backgroundImage: `linear-gradient(
+      to top,
+      ${base.background} ${percent}%,
+      ${base.background} ${percent}%,
+      var(--clr-range_active) ${percent}%
+    )`,
+    color: base.color,
+    opacity: 1, // ← opacityは使わない
+  };
+}
+
+  function cellText(cell) {
+    if (focusKey === "best") return (cell.bestP * 100).toFixed(0);
+    const p = Number(cell.probs?.[focusKey] ?? 0);
+    return (p * 100).toFixed(0);
+  }
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={styles.modalBody} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <div style={styles.modalTitle}>{title}</div>
+          <button style={styles.modalCloseBtn} onClick={onClose}>×</button>
+        </div>
+
+        <div style={styles.modalTabs}>
+          {tabs
+            .filter(k => k !== "best")
+            .map((k) => (
+            <button
+              key={k}
+              style={{
+                ...styles.modalTab,
+                ...(focusKey === k ? styles.modalTabActive : {}),
+              }}
+              onClick={() => setFocusKey(k)}
+            >
+              {/* {k === "best" ? "BEST" : (options || []).find(o => actionKeyFromOption(o) === k) || k} */}
+              {k === "best" ? "" : (options || []).find(o => actionKeyFromOption(o) === k) || k}
+            </button>
+          ))}
+        </div>
+
+        <div style={styles.matrixWrap}>
+          <div style={styles.matrixGrid}>
+            {data.map((row, ri) =>
+              row.map((cell, ci) => (
+                <div key={`${ri}-${ci}`} style={cellStyle(cell)} title={cell.hand}>
+                  <div style={styles.matrixHand}>{cell.hand}</div>
+                  {/* <div style={styles.matrixVal}>{cellText(cell)}</div> */}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div style={styles.modalFoot}>
+          数字は確率(%)です（RangeSpec weight → probsByRangeSpec）。
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /* ================= 出題セット生成 ================= */
 function sampleN(arr, n) {
@@ -750,6 +768,9 @@ const DEFAULT_MIN = 0.5;
 function getAnswerIndex(pattern, hand, optionsBB) {
   return answerByRangeSpec(optionsBB, hand, pattern.bands || [], DEFAULT_FALLBACK, DEFAULT_MIN);
 }
+
+
+
 
 function buildQuestionFromPattern(pattern, hand) {
   const qParams = pattern.questionBuilder(hand);
@@ -774,26 +795,12 @@ function defaultAnswerBuilder(pattern, hand, _weight, optionsBB) {
   };
 }
 
-function buildRandomSet(patternId, count, prevFirstHand = null) {
-  const pattern = PATTERNS.find((p) => p.id === patternId) || PATTERNS[0];
-
-  // 要望に合わせて「全169」からランダム出題
-  const poolHands = ALL_HANDS;
-  const picked = sampleN(poolHands, count);
-
-  // 直前の1問目と同じになりやすい場合の軽い回避
-  if (prevFirstHand && picked.length > 0 && picked[0] === prevFirstHand) {
-    const swap = picked.findIndex((h) => h !== prevFirstHand);
-    if (swap > 0) [picked[0], picked[swap]] = [picked[swap], picked[0]];
-  }
-
-  return picked.map((hand) => buildQuestionFromPattern(pattern, hand));
-}
-
 /* ================= メイン ================= */
 export default function PreflopQuiz() {
   const location = useLocation();
   const navigate = useNavigate();
+  const isDark = usePrefersDark();
+
 
   const navPatternId = location.state?.patternId;
   const navCount = location.state?.count;
@@ -805,6 +812,26 @@ export default function PreflopQuiz() {
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState(null);
   const [locked, setLocked] = useState(false);
+
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeFocusKey, setRangeFocusKey] = useState("best"); // "best" or actionKey
+
+  const navTableSize = location.state?.tableSize;
+  console.log(location);
+  console.log(location.state.tableSize);
+
+  const [tableSize, setTableSize] = useState(() =>
+    Number.isFinite(navTableSize) ? navTableSize : 6
+  );
+
+  useEffect(() => {
+    if (Number.isFinite(navTableSize)) setTableSize(navTableSize);
+  }, [navTableSize]);
+
+  // const [tableSize, setTableSize] = useState(6);
+  const positions = useMemo(() => TABLE_SIZES[tableSize], [tableSize]);
+
+
 
   // Home からの遷移で state が来た時に反映（同一コンポーネント再利用時も安全）
   useEffect(() => {
@@ -857,13 +884,28 @@ export default function PreflopQuiz() {
   if (!questions.length) return <div style={styles.wrap}>Loading...</div>;
 
   const q = questions[step];
+  // const pattern = PATTERNS.find((p) => p.id === patternId) || PATTERNS[0];
   const pattern = PATTERNS.find((p) => p.id === patternId) || PATTERNS[0];
-  const probs = probsByRangeSpec(q.options, q.hero.hand, pattern.bands || [], "fold");
-  const stacks = q.stacks || Object.fromEntries(POSITIONS6.map((p) => [p, q.hero.eff]));
+  const spot =
+    pattern.spots?.find((s) => s.id === q.spotId) ||
+    pattern; // 旧形式fallback
+
+  const probs = probsByRangeSpec(q.options, q.hero.hand, spot.bands || [], "fold");
+  const stacks = q.stacks || Object.fromEntries(positions.map((p) => [p, q.hero.eff]));
   const progress = Math.round(((step + 1) / Math.max(1, questions.length)) * 100);
+  console.log(q.stacks);
+
+  // setTableSize(q.stacks);
+  // const positions = useMemo(() => TABLE_SIZES[tableSize], [tableSize]);
 
   return (
-    <div style={styles.wrap}>
+    <div
+      style={{
+        ...styles.wrap,
+        background: isDark ? "#0f172a" : "#ffffff",
+        color: isDark ? "#e5e7eb" : "#111111",
+      }}
+    >
       <h1 style={styles.h1}>Preflop Quiz（PATTERNS × RangeSpec）</h1>
 
       <button
@@ -872,7 +914,6 @@ export default function PreflopQuiz() {
       >
         ← 問題選択に戻る
       </button>
-
 
       {/* 設定 */}
       <div style={styles.toolbar}>
@@ -927,7 +968,7 @@ export default function PreflopQuiz() {
       </div>
 
       {/* 問題 */}
-      <div style={styles.card}>
+      <div style={styles.card(isDark)}>
         <div style={styles.cardHeader}>
           <div>
             <div style={styles.spot}>
@@ -939,15 +980,41 @@ export default function PreflopQuiz() {
         </div>
 
         <PokerTable
-          stacks={stacks}
+          positions={positions}
+          stacks={q.stacks}
           heroPos={q.hero.pos}
           heroHand={q.hero.hand}
-          action={selected != null ? q.options[selected] : null}
+          action={locked && selected != null ? q.options[selected] : ""}
           facing={q.hero.facing}
           patternId={patternId}
         />
 
-        {locked && <ProbBarChart options={q.options} probs={probs} />}
+        {locked && (
+          <>
+            <div style={styles.rangeBtnRow}>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => {
+                  setRangeFocusKey("best");
+                  setRangeOpen(true);
+                }}
+              >
+                レンジを見る（モーダル）
+              </button>
+            </div>
+            <ProbBarChart options={q.options} probs={probs} />
+          </>
+        )}
+
+        <RangeMatrixModal
+          open={rangeOpen}
+          onClose={() => setRangeOpen(false)}
+          title={`${pattern.label} / ${q.hero.pos} ${q.hero.eff}bb / ${q.hero.facing}`}
+          bands={spot.bands || []}
+          options={q.options}
+          focusKey={rangeFocusKey}
+          setFocusKey={setRangeFocusKey}
+        />
 
         <div>
           {q.options.map((opt, i) => {
@@ -997,7 +1064,6 @@ export default function PreflopQuiz() {
 const styles = {
   wrap: { maxWidth: 920, margin: "0 auto", padding: 16 },
   h1: { fontSize: 24, fontWeight: 900, marginBottom: 12 },
-
   toolbar: { display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 },
   field: { display: "flex", alignItems: "center", gap: 8 },
 
@@ -1015,23 +1081,28 @@ const styles = {
     border: "1px solid #ddd",
     background: "#fff",
     cursor: "pointer",
+    color: "#444",
   },
 
   progressWrap: { position: "relative", background: "#f3f4f6", height: 8, borderRadius: 999, marginBottom: 8 },
   progressBar: { position: "absolute", inset: 0, height: 8, borderRadius: 999, background: "#111" },
   progressText: { textAlign: "right", fontSize: 12, marginTop: 6, opacity: 0.7 },
 
-  card: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 16,
-    padding: 16,
-    boxShadow: "0 1px 2px rgba(0,0,0,.04)",
-    marginBottom: 12,
-  },
   cardHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   spot: { fontWeight: 800 },
   facing: { fontSize: 12, opacity: 0.7 },
   hand: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: 22, fontWeight: 900 },
+  card: (dark) => ({
+    border: "1px solid " + (dark ? "#334155" : "#e5e7eb"),
+    borderRadius: 16,
+    padding: 16,
+    background: dark ? "#020617" : "#ffffff",
+    boxShadow: dark
+      ? "0 1px 2px rgba(0,0,0,.6)"
+      : "0 1px 2px rgba(0,0,0,.04)",
+    marginBottom: 12,
+  }),
+
 
   choice: {
     display: "flex",
@@ -1042,6 +1113,7 @@ const styles = {
     borderRadius: 12,
     marginBottom: 8,
     background: "#fff",
+    color: "#444",
   },
   right: { borderColor: "#86efac", background: "#f0fdf4" },
   wrong: { borderColor: "#fecaca", background: "#fef2f2" },
@@ -1053,7 +1125,7 @@ const styles = {
   note: { fontSize: 12, opacity: 0.75 },
 
   /* poker table */
-  tableWrap: { position: "relative", width: "min(92vw, 720px)", aspectRatio: "1 / 1", margin: "0 auto 12px" },
+  tableWrap: { position: "relative", width: "min(92vw, 720px)", aspectRatio: "3 / 2", margin: "0 auto 12px" },
   tableCircle: {
     position: "absolute",
     inset: 0,
@@ -1069,11 +1141,12 @@ const styles = {
     transform: "translate(-50%, -50%)",
     minWidth: "clamp(72px, 14vw, 110px)",
     textAlign: "center",
-    padding: 8,
+    padding: 3,
     borderRadius: 12,
     background: "rgba(255,255,255,.9)",
     border: "1px solid #e5e7eb",
     boxShadow: "0 2px 6px rgba(0,0,0,.08)",
+    color: "#444",
   },
   seatHero: { border: "2px solid #111", boxShadow: "0 4px 10px rgba(0,0,0,.18)" },
 
@@ -1108,11 +1181,12 @@ const styles = {
     borderRadius: 999,
   },
   probWrap: {
-  border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: 12,
-  margin: "8px 0 12px",
-  background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: 12,
+    margin: "8px 0 12px",
+    background: "#fff",
+    color: "#444",
   },
   probTitle: { fontWeight: 900, marginBottom: 8, fontSize: 13 },
   probGrid: { display: "flex", flexDirection: "column", gap: 8 },
@@ -1124,18 +1198,19 @@ const styles = {
   chipWrapOpen: { top: -10, left: "50%", transform: "translateX(-50%)" },
   chipOpen: { background: "radial-gradient(circle at 35% 35%, #e5e7eb 0%, #9ca3af 60%, #374151 100%)" },
   potCenter: {
-  position: "absolute",
-  left: "50%",
-  top: "50%",
-  transform: "translate(-50%, -50%)",
-  padding: "10px 14px",
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.92)",
-  border: "1px solid rgba(229,231,235,0.9)",
-  boxShadow: "0 6px 18px rgba(0,0,0,.18)",
-  textAlign: "center",
-  minWidth: 110,
-  pointerEvents: "none",
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    padding: "2px 0px",
+    borderRadius: 14,
+    background: "rgba(255,255,255,0.92)",
+    border: "1px solid rgba(229,231,235,0.9)",
+    boxShadow: "0 6px 18px rgba(0,0,0,.18)",
+    textAlign: "center",
+    minWidth: 110,
+    pointerEvents: "none",
+    color: "#444",
   },
   potLabel: { fontSize: 12, fontWeight: 900, letterSpacing: 0.5, opacity: 0.8 },
   potValue: { fontSize: 18, fontWeight: 900, fontVariantNumeric: "tabular-nums" },
@@ -1147,5 +1222,43 @@ const styles = {
     cursor: "pointer",
     marginBottom: 12,
     fontSize: 14,
+    color: "#444",
+  },
+  rangeBtnRow: { marginTop: 8, marginBottom: 8, display: "flex", gap: 8, justifyContent: "flex-end" },
+
+  modalOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 9999 },
+  modalBody: { width: "min(570px, 90vw)", maxHeight: "92vh", overflow: "auto", borderRadius: 14, background: "#111827", color: "#fff", padding: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.35)" },
+  modalHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "6px 6px 10px" },
+  modalTitle: { fontSize: 16, fontWeight: 900 },
+  modalCloseBtn: { border: "none", background: "transparent", color: "#fff", fontSize: 24, cursor: "pointer", padding: "0 8px" },
+
+  modalTabs: { display: "flex", flexWrap: "wrap", gap: 6, padding: "0 6px 10px" },
+  modalTab: { border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", borderRadius: 999, padding: "6px 10px", cursor: "pointer", fontWeight: 800, fontSize: 12 },
+  modalTabActive: { background: "rgba(255,255,255,0.18)" },
+
+  matrixWrap: { padding: 6 },
+  matrixGrid: { display: "grid", gridTemplateColumns: "repeat(13, minmax(44px, 0fr))", gap: 0 },
+  matrixCell: { borderRadius: 8, padding: 6, minHeight: 44, display: "flex", flexDirection: "column", justifyContent: "space-between", border: "1px solid rgba(255,255,255,0.08)" },
+  matrixHand: { fontSize: 12, fontWeight: 900, lineHeight: 1 },
+  matrixVal: { fontSize: 12, fontWeight: 900, textAlign: "right", opacity: 0.95 },
+
+  modalFoot: { padding: "6px 10px 10px", opacity: 0.8, fontSize: 12 },
+  matrixCell: {
+    position: "relative",
+    width: 35,
+    height: 40,
+    border: "1px solid #1f1f1f",
+    background: "#121212",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#e5e7eb",
+    overflow: "hidden",
+  },
+  cellLabel: {
+    position: "relative",
+    zIndex: 1, // ← バーより前面に文字
   },
 };
