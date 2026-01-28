@@ -33,6 +33,20 @@ function getStack(stacks, pos, idx) {
   return stacks[pos];
 }
 
+// SP or tablet判定
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = React.useState(
+    window.innerWidth <= breakpoint
+  );
+
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [breakpoint]);
+
+  return isMobile;
+}
 function circularLayout(positions, radius = 40) {
   const step = 360 / positions.length;
   console.log(positions.length);
@@ -423,6 +437,8 @@ function actionKeyFromOption(opt) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ")
+    .replace(/all[\s-]?in/g, "jam") // ★ ALLIN / ALL-IN を jam に寄せる
+    .replace("ALLIN", "jam") // ★ ALLIN / ALL-IN を jam に寄せる
     .replace(/x\b/g, "bb"); // "2x" -> "2bb"
 }
 
@@ -431,7 +447,8 @@ function actionKeyFromBand(action) {
   return String(action || "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .replace(/all[\s-]?in/g, "jam");    // ★ ALLIN / ALL-IN -> jam
 }
 
 
@@ -465,11 +482,13 @@ function polarToXY(r, deg) {
 function badgeStyleFor(action) {
   if (!action) return { background: "#e5e7eb", color: "#111" };
   const a = action.toLowerCase();
-  if (a.startsWith("open")) return { background: "#dbeafe", color: "#1e40af" };
-  if (a.startsWith("call")) return { background: "#fef3c7", color: "#92400e" };
-  if (a.startsWith("3bet") || a.startsWith("4bet")) return { background: "#ffe4e6", color: "#9f1239" };
-  if (a.startsWith("jam") || a.includes("all-in")) return { background: "#dcfce7", color: "#065f46" };
-  if (a.startsWith("fold")) return { background: "#f3f4f6", color: "#6b7280" };
+  if (a.startsWith("open")) return { background: "#f55353", color: "#1e40af" };
+  if (a.startsWith("call")) return { background: "#5ab966", color: "#92400e" };
+  if (a.startsWith("3bet") || a.startsWith("4bet")) return { background: "#d83b3b", color: "#9f1239" };
+  if (a.startsWith("jam") || a.includes("all-in") || a.includes("allin")) {
+    return { background: "#ab1717", color: "#065f46" };
+  }
+  if (a.startsWith("fold")) return { background: "#3b809b", color: "#999" };
   return { background: "#e5e7eb", color: "#111" };
 }
 
@@ -625,6 +644,7 @@ function RangeMatrixModal({
 }) {
   if (!open) return null;
 
+  const isMobile = useIsMobile();
   const optionKeys = (options || []).map(actionKeyFromOption);
 
   // best / actionKey のタブ
@@ -688,13 +708,16 @@ function cellStyle(cell) {
   return {
     ...styles.matrixCell,
     backgroundImage: `linear-gradient(
-      to top,
+      to right,
+      ${base.background},
       ${base.background} ${percent}%,
-      ${base.background} ${percent}%,
-      var(--clr-range_active) ${percent}%
+      #e5e7eb ${percent}%,
+      #e5e7eb 100%
     )`,
     color: base.color,
     opacity: 1, // ← opacityは使わない
+    width: isMobile ? "25px" : "35px",
+    height: isMobile ? "30px" : "40px",
   };
 }
 
@@ -731,11 +754,26 @@ function cellStyle(cell) {
         </div>
 
         <div style={styles.matrixWrap}>
-          <div style={styles.matrixGrid}>
+          <div 
+            style={{
+              ...styles.matrixGrid,
+              gridTemplateColumns: isMobile ? "repeat(13, minmax(26px, 0fr))" : "repeat(13, minmax(44px, 0fr))",
+            }}
+          >
             {data.map((row, ri) =>
               row.map((cell, ci) => (
-                <div key={`${ri}-${ci}`} style={cellStyle(cell)} title={cell.hand}>
-                  <div style={styles.matrixHand}>{cell.hand}</div>
+                <div key={`${ri}-${ci}`} 
+                  style={cellStyle(cell)} 
+                  title={cell.hand}
+                >
+                  <div 
+                    style={{
+                      ...styles.matrixHand,
+                      fontSize: isMobile ? "11px" : "12px",
+                    }}
+                  >
+                    {cell.hand}
+                  </div>
                   {/* <div style={styles.matrixVal}>{cellText(cell)}</div> */}
                 </div>
               ))
@@ -1162,8 +1200,8 @@ const styles = {
 
   // ブラインドチップ
   chipWrap: { position: "absolute", display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" },
-  chipWrapSB: { bottom: -8, right: -10 },
-  chipWrapBB: { bottom: -8, left: -10 },
+  chipWrapSB: { bottom: 0, right: -70 },
+  chipWrapBB: { bottom: 0, left: 80 },
   chip: {
     width: 18,
     height: 18,
@@ -1233,12 +1271,26 @@ const styles = {
   modalCloseBtn: { border: "none", background: "transparent", color: "#fff", fontSize: 24, cursor: "pointer", padding: "0 8px" },
 
   modalTabs: { display: "flex", flexWrap: "wrap", gap: 6, padding: "0 6px 10px" },
-  modalTab: { border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", borderRadius: 999, padding: "6px 10px", cursor: "pointer", fontWeight: 800, fontSize: 12 },
+  modalTab: {
+  border: "1px solid rgba(255,255,255,0.15)",
+  background: "rgba(255,255,255,0.06)",
+  color: "#fff",
+  borderRadius: 999,
+  padding: "6px 10px",
+  cursor: "pointer",
+  fontWeight: 800,
+  fontSize: 12,
+
+  // ★追加：長文で崩れない
+  maxWidth: 160,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+},
   modalTabActive: { background: "rgba(255,255,255,0.18)" },
 
   matrixWrap: { padding: 6 },
   matrixGrid: { display: "grid", gridTemplateColumns: "repeat(13, minmax(44px, 0fr))", gap: 0 },
-  matrixCell: { borderRadius: 8, padding: 6, minHeight: 44, display: "flex", flexDirection: "column", justifyContent: "space-between", border: "1px solid rgba(255,255,255,0.08)" },
   matrixHand: { fontSize: 12, fontWeight: 900, lineHeight: 1 },
   matrixVal: { fontSize: 12, fontWeight: 900, textAlign: "right", opacity: 0.95 },
 
