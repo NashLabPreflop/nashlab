@@ -1,7 +1,38 @@
 
+// ------------------------------------------------------------
+// spots の id が重複すると、選択UIや key で衝突して挙動が不安定になります。
+// ここでは「pattern 単位のプレフィックス + spot 自体の id（または label）」で
+// 必ず一意になるように正規化します（同名があれば末尾に -2, -3… を付与）。
+// ------------------------------------------------------------
+function __slugId(v) {
+  const s = String(v ?? "").trim();
+  // 英数以外は "-" に寄せる（pattern.id に空白等があっても安全にする）
+  const out = s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return out || "x";
+}
+
+function __normalizePatterns(patterns) {
+  const used = new Set();
+  return (patterns || []).map((p, pi) => {
+    const pKey = __slugId(p?.id ?? p?.label ?? `pattern-${pi}`);
+    const spots = (p?.spots || []).map((s, si) => {
+      const spotKey = __slugId(s?.id ?? s?.label ?? `spot-${si}`);
+      const base = `${pKey}:${spotKey}`;
+      let id = base;
+      let n = 2;
+      while (used.has(id)) id = `${base}-${n++}`;
+      used.add(id);
+      return { ...s, id };
+    });
+    return { ...p, spots };
+  });
+}
 
 /* ================= PATTERNS（回答は range 文字列で定義） ================= */
-export const PATTERNS = [
+export const PATTERNS = __normalizePatterns([
   {
     id: "TSL normal rule Ante",          // ← あなたが言う「一つのid」
     label: "TSL ノーマル 8left",
@@ -990,4 +1021,607 @@ export const PATTERNS = [
       },         
     ]
   },
-];
+  {
+    id: "TSL Captain rule Ante 8left",          // ← あなたが言う「一つのid」
+    label: "TSL キャプテンマッチ 8left",
+    tags: ["ante"],                 // 任意（Homeのフィルタにも使える
+    questionBuilder: (hand) => ({
+      stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+    }),
+    spots: [
+      {
+        id: "UTG open",
+        label: "UTG openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "UTG",
+          eff: 22,
+          facing: "Unopened",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","open 2bb"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `88+, 77:0.357, A4s+, A3s:0.937, ATo+, K9s+, K8s:0.555, K6s:0.001, KQo, KJo:0.804, QTs+, JTs:0.976` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "UTG+1 open",
+        label: "UTG+1 openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "UTG+1",
+          eff: 18,
+          facing: "Unopened",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","open 2bb"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `88+, 77:0.324, A3s+, ATo+, A9o:0.204, K9s+, K8s:0.204, KQo, KJo:0.893, QTs+, Q9s:0.213, QJo:0.022, JTs` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "LJ open",
+        label: "LJ openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "LJ",
+          eff: 27,
+          facing: "Unopened",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","open 2bb"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `66+, 55:0.334, A2s+, ATo+, A9o:0.936, A8o:0.003, K8s+, K7s:0.995, K6s:0.859, K5s:0.077, KJo+, KTo:0.001, Q9s+, Q8s:0.001, QJo:0.536, JTs, J9s:0.014, T9s:0.838` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "HJ open",
+        label: "HJ openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "HJ",
+          eff: 16,
+          facing: "Unopened",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `99+, 88:0.891, 77:0.863, 66:0.011, ATs+, A9s:0.999, A8s-A6s, A5s:0.831, A4s:0.882, A3s:0.784, A2s:0.008, AKo:0.799, AQo:0.473, AJo-A9o, A8o:0.090, KQs:0.911, KTs:0.264, K9s, K8s:0.993, KJo+, KTo:0.528, QJs:0.068, QTs-Q9s, QJo:0.846, QTo:0.020, JTs` },
+          { action: "ALLIN", min: 0.05, range: `88:0.109, 77:0.137, A9s:0.001, A5s:0.169, A4s:0.118, A3s:0.216, A2s:0.018, AKo:0.201, AQo:0.527, KQs:0.089, KJs, KTs:0.736, QJs:0.932` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "CO open",
+        label: "CO openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "CO",
+          eff: 37,
+          facing: "Unopened",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","open 2bb"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `44+, A2s+, A7o+, A6o:0.790, A5o, A4o:0.314, K4s+, K3s:0.997, KTo+, K9o:0.999, Q6s+, Q5s:0.778, QTo+, Q9o:0.007, J8s+, J7s:0.036, JTo, T8s+, T7s:0.967, T9o:0.003, 98s, 97s:0.269, 87s:0.335` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "BTN open",
+        label: "BTN openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 10,
+          facing: "Unopened",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `JJ+, TT:0.061, 77:0.019, AQs+, AJs:0.999, ATs:0.274, A8s:0.368, A7s:0.147, AKo:0.107, A6o:0.146, A2o:0.064, K8s:0.306, K7s:0.002, K6s-K5s, K4s:0.925, K3s:0.001, KTo:0.256, K9o, Q8s, Q7s:0.064, Q6s:0.208, Q5s:0.937, QTo:0.078, Q9o:0.208, J8s:0.995, J7s:0.943, J5s:0.049, J9o:0.149, T8s:0.226, T7s:0.458` },
+          { action: "ALLIN", min: 0.05, range: `TT:0.939, 99-88, 77:0.981, 66-22, AJs:0.001, ATs:0.726, A9s, A8s:0.632, A7s:0.853, A6s-A2s, AKo:0.893, AQo-A7o, A6o:0.854, A5o-A3o, A2o:0.936, K9s+, K8s:0.694, K7s:0.998, KJo+, KTo:0.744, Q9s+, QJo, QTo:0.922, J9s+, J8s:0.005, JTo, T9s, T8s:0.774, 98s:0.010` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },      
+      {
+        id: "facingUTGopen",
+        label: "BBvsUTG defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BB",
+          eff: 22,
+          facing: "UTG open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.0bb", "3bet 8.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `TT-88, 77:0.995, 66:0.957, 55:0.995, 44-22, AQs-A7s, A6s:0.999, A5s:0.746, A4s:0.889, A3s:0.961, A2s:0.941, AQo, AJo:0.985, ATo:0.925, A9o:0.991, A8o:0.741, A7o:0.622, A5o:0.580, A4o:0.615, K6s+, K5s:0.981, K4s-K2s, KQo, KJo:0.963, KTo:0.993, K9o:0.981, K8o:0.125, K7o:0.430, K6o:0.013, Q2s+, QJo:0.928, QTo, Q9o:0.999, Q8o:0.103, J6s+, J5s:0.999, J4s-J3s, J2s:0.999, JTo:0.900, J9o:0.951, T3s+, T2s:0.998, T8o+, 94s+, 93s:0.998, 92s:0.998, 98o:0.997, 97o:0.077, 83s+, 82s:0.997, 87o:0.002, 86o:0.713, 73s+, 72s:0.935, 76o:0.996, 62s+, 65o, 64o:0.551, 52s+, 54o, 53o:0.095, 42s+, 32s` },
+              { action: "3bet 5.0bb", min: 0.05, range: `AA, KK:0.003, QQ:0.015, JJ:0.318, AKs:0.854, AKo:0.001, AJo:0.015, ATo:0.075, A9o:0.009, A8o:0.248, A7o:0.101, A6o:0.149, A5o:0.420, A4o:0.376, A3o:0.156, K5s:0.019, KJo:0.037, KTo:0.007, K9o:0.019, K7o:0.022, K6o:0.013, QJo:0.072, JTo:0.100, J9o:0.049, 87o:0.017, 76o:0.004` },
+              { action: "3bet 8.0bb", min: 0.05, range: `KK:0.997, QQ:0.985, JJ:0.600, AKs:0.146, AKo:0.974, A7o:0.001, A6o:0.004, A4o:0.001, A3o:0.010, A2o:0.519, K8o:0.005, K7o:0.004, K6o:0.067, K5o:0.292, K4o:0.120, K3o:0.158, K2o:0.969, Q7o:0.008, Q6o:0.001, Q5o:0.053, Q4o:0.023, Q3o:0.022, Q2o:0.509` },
+              { action: "ALLIN", min: 0.05, range: `JJ:0.081, 77:0.005, 66:0.043, 55:0.005, A6s:0.001, A5s:0.254, A4s:0.111, A3s:0.039, A2s:0.059, AKo:0.025` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },  
+      {
+        id: "facingCOopen",
+        label: "BBvsCO defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BB",
+          eff: 33,
+          facing: "CO open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.0bb", "3bet 8.0bb", "3bet 10.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `QQ:0.775, JJ-22, AQs:0.993, AJs-A7s, A6s:0.999, A5s:0.915, A4s:0.819, A3s:0.720, A2s:0.710, AKo:0.091, AQo:0.986, AJo-A8o, A7o:0.854, A6o:0.358, A5o:0.495, A4o:0.391, A3o:0.036, A2o:0.001, K2s+, KQo:0.928, KJo, KTo:0.998, K9o:0.879, K8o:0.982, K7o:0.995, K6o:0.828, K5o:0.809, K4o:0.867, K3o:0.751, K2o:0.534, QJs:0.999, QTs, Q9s:0.997, Q8s-Q2s, QJo:0.998, QTo:0.957, Q9o:0.898, Q8o:0.929, Q7o:0.992, Q6o:0.960, Q5o:0.881, Q4o:0.937, Q3o:0.015, JTs, J9s:0.993, J8s:0.997, J7s-J2s, JTo:0.999, J9o:0.966, J8o:0.904, J7o:0.834, T8s+, T7s:0.986, T6s-T2s, T8o+, T7o:0.798, 92s+, 97o+, 96o:0.984, 87s:0.966, 86s-82s, 87o:0.984, 86o:0.980, 85o:0.660, 76s:0.997, 75s-72s, 75o+, 74o:0.058, 65s:0.994, 64s-62s, 64o+, 52s+, 54o:0.994, 53o:0.904, 42s+, 43o:0.930, 32s` },
+              { action: "3bet 5.0bb", min: 0.05, range: `AA:0.009, KK:0.009, QQ:0.005, AKs:0.018, AQs:0.007, A6s:0.001, A5s:0.009, A4s:0.005, A3s:0.001, A2s:0.003, AKo:0.003, AQo:0.003, A7o:0.002, A6o:0.009, A5o:0.001, A4o:0.003, A3o:0.002, KTo:0.002, K9o:0.003, K8o:0.001, K6o:0.002, K5o:0.005, K2o:0.003, QJs:0.001, Q9s:0.003, QJo:0.002, QTo:0.002, Q9o:0.003, Q5o:0.001, J9s:0.007, J8s:0.003, JTo:0.001, J9o:0.001, J8o:0.002, T7s:0.014, T7o:0.001, 86o:0.001, 54o:0.005` },
+              { action: "3bet 8.0bb", min: 0.05, range: `AA:0.046, KK:0.991, QQ:0.010, AKs:0.389, A3s:0.006, AKo:0.362, AQo:0.011, A7o:0.062, A6o:0.125, A5o:0.331, A4o:0.140, A3o:0.117, A2o:0.056, KQo:0.072, K9o:0.117, K8o:0.017, K7o:0.005, K6o:0.170, K5o:0.187, K4o:0.133, K3o:0.248, K2o:0.277, QJo:0.001, QTo:0.041, Q9o:0.099, Q8o:0.070, Q6o:0.038, Q5o:0.063, Q4o:0.006, Q3o:0.006, J9o:0.033, J8o:0.094, J7o:0.148, T7o:0.137, 96o:0.002, 87s:0.034, 87o:0.016, 86o:0.018, 85o:0.001, 76s:0.002, 65s:0.006, 54o:0.001, 53o:0.096, 43o:0.020` },
+              { action: "3bet 10.0bb", min: 0.05, range: `AA:0.946, QQ:0.210, AKs:0.593, AKo:0.089, A7o:0.081, A6o:0.509, A5o:0.038, A4o:0.245, A3o:0.527, A2o:0.598, K3o:0.001, K2o:0.185, Q7o:0.008, Q6o:0.001, Q5o:0.048, Q4o:0.053, Q3o:0.053, Q2o:0.014, J7o:0.019, T7o:0.063, 96o:0.012, 95o:0.031, 85o:0.065, 43o:0.022` },
+              { action: "ALLIN", min: 0.05, range: `A5s:0.076, A4s:0.176, A3s:0.273, A2s:0.287, AKo:0.455, A5o:0.134, A4o:0.222, A3o:0.319, A2o:0.345` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },       
+      {
+        id: "facingLJopen",
+        label: "LJvsCO defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "CO",
+          eff: 27,
+          facing: "LJ open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.5bb", "3bet 8.0bb", "3bet 10.0bb", "3bet 12.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `QQ:0.072, JJ:0.729, TT:0.989, 99:0.877, 88:0.815, 77:0.073, 66:0.367, 55:0.053, AQs:0.989, AJs, ATs:0.997, A9s:0.303, A5s:0.356, A4s:0.093, AQo:0.712, AJo:0.189, KQs, KJs:0.999, KTs:0.902, KQo:0.058, QJs:0.878, QTs:0.307, JTs:0.148, 65s:0.052, 54s:0.007` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA, KK:0.935, QQ:0.880, JJ:0.165, 99:0.056, 88:0.005, AKs:0.826, A9s:0.030, A8s:0.526, A7s:0.433, A6s:0.577, A5s:0.364, A4s:0.713, A3s:0.893, A2s:0.959, AKo:0.476, AQo:0.228, AJo:0.528, ATo:0.235, A6o:0.002, A5o:0.400, A4o:0.462, A3o:0.197, KTs:0.053, K9s:0.018, K8s:0.295, K7s:0.231, K6s:0.145, K5s:0.289, K4s:0.232, K3s:0.141, KQo:0.678, KJo:0.143, KTo:0.002` },
+              { action: "3bet 8.0bb", min: 0.05, range: `KK:0.065, QQ:0.034, JJ:0.090, AKs:0.100, A8s:0.025, A7s:0.044, A5s:0.034, A4s:0.022, A3s:0.016, A2s:0.011, AKo:0.139, AQo:0.031, AJo:0.033, A5o:0.020, A4o:0.004, KTs:0.007, K8s:0.002, K5s:0.013, KQo:0.100, KJo:0.001` },
+              { action: "3bet 10.0bb", min: 0.05, range: `QQ:0.006, JJ:0.006, AKo:0.018, KQo:0.016` },
+              { action: "3bet 12.0bb", min: 0.05, range: `QQ:0.008, JJ:0.011, 99:0.008, 88:0.016, AKs:0.074, AQs:0.011, A5s:0.029, AKo:0.026, AQo:0.029` },
+              { action: "ALLIN", min: 0.05, range: `TT:0.011, 88:0.062, 77:0.013, ATs:0.002, A8s:0.004, A7s:0.015, A5s:0.217, A4s:0.172, A3s:0.086, A2s:0.012, AKo:0.340` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingHJopen",
+        label: "HJvsSB defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "SB",
+          eff: 16,
+          facing: "HJ open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `99:0.006, 88:0.016, 66:0.005, AJs:0.020, ATs:0.010, AJo:0.008, KQo:0.006, QTs:0.003` },
+              { action: "3bet 5.0bb", min: 0.05, range: `QQ+, JJ:0.001, TT:0.260, 99:0.070, AKs:0.990, AQs:0.789, AJs:0.294, ATs:0.079, A9s:0.293, A8s:0.435, A7s:0.089, A6s:0.732, A4s:0.183, A3s:0.456, A2s:0.302, AKo:0.031, AQo:0.078, AJo:0.191, ATo:0.444, A5o:0.300, A4o:0.203, A3o:0.008, KQo:0.557` },
+              { action: "ALLIN", min: 0.05, range: `JJ:0.999, TT:0.740, 99:0.924, 77:0.010, 66:0.679, 55:0.552, 44:0.010, AKs:0.010, AQs:0.211, AJs:0.685, ATs:0.910, A9s:0.001, A5s, A4s:0.763, A3s:0.492, A2s:0.001, AKo:0.969, AQo:0.922, AJo:0.564, KTs+, KQo:0.428, QJs, QTs:0.934, JTs:0.001` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },  
+      {
+        id: "facingUTGopen",
+        label: "UTGvsLJ defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "LJ",
+          eff: 22,
+          facing: "UTG open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.5bb", "3bet 8.0bb", "3bet 10.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `QQ:0.002, JJ:0.321, TT:0.334, 99:0.019, 88:0.173, 66:0.040, 55:0.013, AKs:0.011, AQs, AJs:0.843, AKo:0.141, AQo:0.002, KQs:0.687, 65s:0.010` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA, KK:0.993, QQ:0.994, JJ:0.648, AKs:0.989, ATs:0.011, A9s:0.642, A8s:0.847, A7s:0.947, A6s:0.390, A5s:0.087, A4s:0.143, A3s:0.015, A2s:0.001, AKo:0.810, AQo:0.998, AJo:0.208, A5o:0.077, A4o:0.059, KQs:0.287, KJs:0.923, KTs:0.045, K9s:0.236, K8s:0.162, K7s:0.061, K5s:0.320, K4s:0.106, KQo:0.875, KJo:0.036` },
+              { action: "3bet 8.0bb", min: 0.05, range: `KK:0.007, QQ:0.003, JJ:0.023, TT:0.001, AKo:0.037, KQs:0.022, KJs:0.041, KQo:0.002` },
+              { action: "3bet 10.0bb", min: 0.05, range: `` },
+              { action: "ALLIN", min: 0.05, range: `` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },    
+      {
+        id: "facingUTGopen",
+        label: "UTGvsUTG+1 defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "UTG+1",
+          eff: 18,
+          facing: "UTG open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.5bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.002, KK:0.002, QQ:0.035, JJ:0.125, TT:0.006, 88:0.001, AQs:0.413, AKo:0.001, KQs:0.082` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA:0.998, KK:0.995, QQ:0.775, JJ:0.838, AKs, AQs:0.400, A8s:0.014, A7s:0.017, A6s:0.018, A5s:0.011, A4s:0.001, A3s:0.001, A2s:0.002, AKo:0.339, AQo:0.996, AJo:0.410, A5o:0.181, A4o:0.146, KQs:0.081, KJs:0.083, KTs:0.006, K9s:0.015, K8s:0.013, K7s:0.012, K5s:0.169, K4s:0.092, K3s:0.001, KQo:0.378, KJo:0.087` },
+              { action: "ALLIN", min: 0.05, range: `KK:0.003, QQ:0.189, JJ:0.037, AQs:0.185, A5s:0.001, AKo:0.660, KQs:0.052` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },   
+      {
+        id: "facingHJopen",
+        label: "HJvsCO defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "CO",
+          eff: 16,
+          facing: "HJ open 2.0x",
+          stacks: [22, 18, 27, 16, 37, 10, 19, 42],
+          options: ["Fold","call", "3bet 5.5bb", "3bet 8.0bb", "3bet 10.0bb", "3bet 12.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.123, QQ:0.036, JJ:0.001, 99:0.205, 88:0.399, 66:0.030, AQs:0.043, AJs:0.619, ATs:0.433, A9s:0.038, A5s:0.001, AJo:0.396, KQs:0.170, KJs:0.345, KTs:0.236, QJs:0.348, QTs:0.080` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA:0.876, KK:0.945, QQ:0.905, JJ:0.999, TT, 99:0.794, AKs:0.891, AQs:0.902, AJs:0.296, ATs:0.185, A9s:0.702, A8s:0.609, A7s:0.816, A6s:0.793, A5s:0.485, A4s:0.680, A3s:0.614, A2s:0.474, AKo:0.582, AQo:0.996, AJo:0.369, ATo:0.260, A9o:0.016, A2o:0.002, KQs:0.025, KTs:0.130, K9s:0.396, K8s:0.388, K5s:0.001, K3s:0.001, K2s:0.056, KQo:0.998, KJo:0.262, KTo:0.036` },
+              { action: "3bet 8.0bb", min: 0.05, range: `KK:0.033, QQ:0.011, 88:0.003, 66:0.032, AKs:0.009, AJs:0.002, ATs:0.002, A8s:0.001, A5s:0.108, A4s:0.011, AKo:0.018, AQo:0.001, AJo:0.004, KQs:0.012, KJs:0.109, KQo:0.001, QJs:0.003` },
+              { action: "3bet 10.0bb", min: 0.05, range: `AA:0.001, QQ:0.002, 88:0.001, A5s:0.003, A4s:0.003, AKo:0.001, AQo:0.002, KJs:0.001, QJs:0.002` },
+              { action: "3bet 12.0bb", min: 0.05, range: `KK:0.022, QQ:0.045, 99:0.001, 88:0.008, AKs:0.058, AQs:0.056, ATs:0.027, A5s:0.105, A4s:0.093, A3s:0.014, AKo:0.026, KQs:0.056, KJs:0.051, KTs:0.012, QJs:0.053` },
+              { action: "ALLIN", min: 0.05, range: `AKs:0.042, AJs:0.083, ATs:0.353, A5s:0.265, A4s:0.103, A3s:0.002, AKo:0.374, KQs:0.736, KJs:0.495, KTs:0.087, QJs:0.001` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },                             
+    ]
+  },
+    {
+    id: "TSL Captain rule Ante 5left",          // ← あなたが言う「一つのid」
+    label: "TSL キャプテンマッチ 5left",
+    tags: ["ante"],                 // 任意（Homeのフィルタにも使える
+    questionBuilder: (hand) => ({
+      stacks: [19, 30, 16, 6, 14],
+    }),
+    spots: [
+      {
+        id: "HJ open",
+        label: "HJ openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "HJ",
+          eff: 33,
+          facing: "Unopened",
+          stacks: [19, 30, 16, 6, 14],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `JJ+, TT:0.971, 99:0.525, 88:0.999, 77:0.222, 66:0.254, 55:0.001, AKs, AQs:0.998, AJs, ATs:0.539, A9s:0.263, A8s:0.871, A7s:0.944, A6s:0.995, A5s:0.207, A4s:0.305, A3s:0.437, A2s:0.756, AKo:0.653, AJo-A9o, A8o:0.999, A7o:0.732, A6o:0.351, A5o:0.790, A4o:0.323, K9s:0.993, K8s:0.735, K7s:0.127, K6s:0.002, KJo+, KTo:0.999, QTs:0.583, Q9s:0.487, QJo, QTo:0.252, JTs:0.987` },
+          { action: "ALLIN", min: 0.05, range: `TT:0.029, 99:0.475, 88:0.001, 77:0.778, 66:0.088, AQs:0.002, ATs:0.461, A9s:0.737, A8s:0.129, A7s:0.056, A6s:0.005, A5s:0.793, A4s:0.695, A3s:0.563, A2s:0.244, AKo:0.347, AQo, KTs+, K9s:0.006, QJs, QTs:0.417, JTs:0.013` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "CO open",
+        label: "CO openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "CO",
+          eff: 26,
+          facing: "Unopened",
+          stacks: [19, 30, 16, 6, 14],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `JJ+, TT:0.414, 99:0.524, 88:0.125, 77:0.621, AQs+, AJs:0.934, ATs, A9s:0.055, AKo, AJo:0.083, ATo:0.232, A9o:0.522, A7o:0.131, A6o:0.145, A5o:0.002, A4o:0.001, A3o:0.552, A2o:0.743, K9o:0.675, K8o:0.042, K7o:0.020, K6o:0.005, K5o:0.300, K4o:0.993, K3o, K2o:0.475, Q9o:0.156, Q8o:0.394, Q7o:0.908, Q6o:0.977, Q5o:0.009, J3s:0.013, J2s:0.831, J9o:0.002, J8o:0.436, J7o:0.905, T6s:0.001, T5s:0.990, T4s:0.991, T3s:0.999, T2s:0.184, T8o:0.446, T7o, 95s:0.997, 98o:0.885, 97o:0.283, 87o:0.327, 75s:0.006, 74s:0.108, 53s:0.044` },
+          { action: "ALLIN", min: 0.05, range: `TT:0.586, 99:0.476, 88:0.875, 77:0.379, 66-22, AJs:0.066, A9s:0.945, A8s-A2s, AQo, AJo:0.917, ATo:0.768, A9o:0.478, A8o, A7o:0.869, A6o:0.855, A5o:0.998, A4o:0.999, A3o:0.448, A2o:0.257, K2s+, KTo+, K9o:0.325, K8o:0.958, K7o:0.980, K6o:0.995, K5o:0.700, K4o:0.007, K2o:0.001, Q2s+, QTo+, Q9o:0.844, Q8o:0.606, J4s+, J3s:0.987, J2s:0.169, JTo, J9o:0.998, J8o:0.564, T7s+, T6s:0.999, T5s:0.009, T4s:0.009, T9o, T8o:0.554, 96s+, 95s:0.003, 98o:0.115, 85s+, 87o:0.074, 76s, 75s:0.994, 74s:0.002, 64s+, 54s, 53s:0.942` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "BTN open",
+        label: "BTN openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 20,
+          facing: "Unopened",
+          stacks: [19, 30, 16, 6, 14],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `QQ+, JJ:0.402, TT:0.004, 88:0.002, 77:0.492, AKs, AQs:0.833, AJs:0.943, ATs:0.992, A9s:0.003, A8s:0.343, A7s:0.004, A6s:0.002, AKo:0.056, A7o:0.909, A6o:0.212, A5o:0.202, A4o:0.002, A3o:0.051, A2o:0.062, K5s:0.001, KJo:0.232, KTo:0.098, K9o:0.302, K8o:0.030, K7o:0.017, K6o:0.128, K5o:0.292, K4o:0.909, K3o:0.247, K2o:0.001, Q5s:0.001, Q4s:0.001, Q3s:0.003, Q2s:0.128, QJo:0.082, QTo:0.021, Q9o:0.423, Q8o:0.589, Q7o:0.431, Q6o:0.013, J7s:0.004, J6s:0.002, J5s:0.015, J4s:0.028, J3s:0.995, J2s:0.398, J9o:0.001, J8o:0.425, T6s:0.022, T5s:0.748, T4s:0.747, T3s:0.075, T9o:0.002, T8o:0.069, T7o:0.648, 95s:0.373, 98o:0.020, 97o:0.104, 85s:0.089, 87o:0.559, 75s:0.001, 74s:0.003, 65s:0.002, 64s:0.131, 53s:0.001` },
+          { action: "ALLIN", min: 0.05, range: `JJ:0.598, TT:0.996, 99, 88:0.998, 77:0.508, 66-22, AQs:0.167, AJs:0.057, ATs:0.008, A9s:0.997, A8s:0.657, A7s:0.996, A6s:0.998, A5s-A2s, AKo:0.944, AQo-A8o, A7o:0.091, A6o:0.788, A5o:0.798, A4o:0.998, A3o:0.949, A2o:0.938, K6s+, K5s:0.999, K4s-K2s, KQo, KJo:0.768, KTo:0.902, K9o:0.698, K8o:0.970, K7o:0.983, K6o:0.872, K5o:0.708, K4o:0.085, Q6s+, Q5s:0.999, Q4s:0.999, Q3s:0.996, Q2s:0.872, QJo:0.918, QTo:0.979, Q9o:0.577, Q8o:0.411, J8s+, J7s:0.996, J6s:0.998, J5s:0.985, J4s:0.971, J3s:0.005, J2s:0.094, JTo, J9o:0.999, J8o:0.575, T7s+, T6s:0.978, T5s:0.250, T4s:0.088, T9o:0.998, T8o:0.931, 96s+, 95s:0.600, 98o:0.980, 86s+, 85s:0.910, 87o:0.360, 76s, 75s:0.999, 65s:0.998, 64s:0.354, 54s:0.999, 53s:0.001` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingHJopen",
+        label: "BBvsHJ defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BB",
+          eff: 33,
+          facing: "HJ open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+          options: ["Fold","call", "3bet 5.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `77:0.557, 66:0.667, 55:0.829, 44:0.243, 33:0.077, 22:0.356, AJs:0.001, ATs, A9s:0.997, A8s:0.811, A7s:0.674, A6s:0.221, A4s:0.001, A3s:0.007, A2s:0.001, ATo, KQs:0.042, KJs:0.007, KTs:0.003, K8s:0.460, K7s:0.453, K6s:0.419, K5s:0.001, K4s:0.677, K3s:0.058, K2s:0.001, KQo, KJo:0.999, KTo:0.275, Q9s:0.004, Q8s:0.445, Q7s:0.356, Q6s:0.353, Q5s:0.155, Q4s:0.061, QJo:0.457, QTo:0.052, J9s:0.173, J8s:0.038, T9s:0.995, T8s:0.671, 98s:0.999, 97s:0.020, 87s:0.831, 86s:0.342, 76s:0.999, 75s:0.004, 65s:0.995, 64s:0.098, 54s:0.990, 53s:0.006, 43s:0.378` },
+              { action: "3bet 5.0bb", min: 0.05, range: `AA, KK:0.001, AKs:0.016, AQs:0.159, AJs:0.196, A6s:0.145, A3s:0.005, A2s:0.017, A9o:0.035, A8o:0.085, A7o:0.057, A6o:0.066, A5o:0.025, A4o:0.030, A3o:0.178, A2o:0.074` },
+              { action: "ALLIN", min: 0.05, range: `KK:0.999, QQ-88, 77:0.443, 66:0.333, 55:0.171, 44:0.757, 33:0.923, 22:0.644, AKs:0.984, AQs:0.841, AJs:0.803, A9s:0.003, A8s:0.188, A7s:0.318, A6s:0.455, A5s:0.999, A4s:0.999, A3s:0.987, A2s:0.981, AJo+, KQs:0.958, KJs:0.993, KTs:0.997, K9s, K8s:0.329, K7s:0.012, K6s:0.174, K5s:0.002, K4s:0.055, K3s:0.040, KJo:0.001, KTo:0.592, QTs+, Q9s:0.996, Q8s:0.385, Q5s:0.002, Q4s:0.001, QJo:0.542, QTo:0.190, JTs, J9s:0.826, J8s:0.002, T9s:0.004` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },  
+      {
+        id: "facingBTNopen",
+        label: "BBvsBTN defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BB",
+          eff: 33,
+          facing: "BTN open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+          options: ["Fold","call", "3bet 5.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `JJ:0.213, TT:0.779, 99:0.701, 88:0.997, 77, 66:0.993, 55:0.998, 44:0.871, 33:0.842, 22:0.216, ATs:0.282, A9s:0.504, A8s:0.494, A7s:0.995, A6s:0.035, A5s:0.427, A4s:0.250, A3s:0.082, ATo:0.014, A9o:0.826, A8o:0.737, A7o:0.561, A5o:0.026, A4o:0.095, A3o:0.005, KQs:0.648, KJs:0.999, KTs:0.995, K9s:0.966, K8s:0.997, K7s:0.882, K6s:0.591, K5s:0.494, K4s:0.965, K3s:0.682, K2s:0.893, KQo:0.985, KJo:0.996, KTo, K9o:0.996, K8o:0.297, QJs:0.891, QTs:0.995, Q9s-Q8s, Q7s:0.946, Q6s:0.949, Q5s:0.988, Q4s:0.693, Q3s:0.659, Q2s:0.973, QJo:0.999, QTo, Q9o:0.853, JTs:0.988, J9s, J8s:0.994, J7s:0.994, J6s:0.565, J5s:0.512, J4s:0.011, J3s:0.014, J2s:0.008, JTo:0.993, J9o:0.105, T9s, T8s:0.995, T7s:0.996, T6s:0.070, T4s:0.001, T2s:0.002, T9o:0.255, 98s:0.999, 97s:0.845, 96s:0.815, 94s:0.001, 87s:0.984, 86s:0.557, 85s:0.902, 76s:0.997, 75s:0.765, 74s:0.015, 73s:0.001, 65s:0.997, 64s:0.980, 54s:0.971, 53s:0.961, 52s:0.216, 43s:0.762` },
+              { action: "3bet 5.0bb", min: 0.05, range: `KK+, QQ:0.927, JJ:0.237, TT:0.005, AKs:0.998, AQs:0.171, AJs:0.071, ATs:0.217, A9s:0.003, AKo:0.924, A8o:0.001, A7o:0.394, A6o:0.818, A5o:0.001, A4o:0.003, A3o:0.259, A2o:0.316, K2s:0.016, K7o:0.183, K6o:0.171, K5o:0.112, K4o:0.019, K3o:0.001, K2o:0.079, Q7s:0.046, Q6s:0.046, Q4s:0.008, Q3s:0.006, Q2s:0.024, Q9o:0.084, Q7o:0.120, Q5o:0.060, Q2o:0.027, J7s:0.002, J6s:0.027, J5s:0.097, J4s:0.015, J3s:0.157, J2s:0.446, JTo:0.001, J9o:0.067, J2o:0.004, T6s:0.001, T5s:0.001, 97s:0.009, 93s:0.002, 87s:0.001, 72s:0.019, 52s:0.097, 43s:0.001, 42s:0.001` },
+              { action: "ALLIN", min: 0.05, range: `QQ:0.073, JJ:0.550, TT:0.215, 99:0.298, 88:0.003, 66:0.007, 55:0.002, 44:0.129, 33:0.158, 22:0.784, AKs:0.002, AQs:0.829, AJs:0.929, ATs:0.501, A9s:0.492, A8s:0.506, A7s:0.004, A6s:0.965, A5s:0.573, A4s:0.750, A3s:0.918, A2s, AKo:0.076, AQo-AJo, ATo:0.986, A9o:0.174, A8o:0.262, A7o:0.046, A6o:0.182, A5o:0.974, A4o:0.901, A3o:0.736, A2o:0.684, KQs:0.352, KJs:0.001, KTs:0.005, K9s:0.034, K8s:0.002, K7s:0.118, K6s:0.409, K5s:0.505, K4s:0.033, K3s:0.303, K2s:0.091, KQo:0.015, KJo:0.004, QJs:0.109, QTs:0.005, Q7s:0.006, Q6s:0.004, Q5s:0.010, Q4s:0.021, Q3s:0.001, Q2s:0.001, QJo:0.001, JTs:0.012, J8s:0.006, J7s:0.001, J3s:0.001, J2s:0.002, JTo:0.005, T8s:0.004, T7s:0.002, 97s:0.002, 87s:0.008, 86s:0.006, 54s:0.002` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },       
+      {
+        id: "facingHJopen",
+        label: "HJvsBTN defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 20,
+          facing: "HJ open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+           options: ["Fold","call", "3bet 5.5bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.013, KK:0.001, JJ:0.003, TT:0.030, 99:0.021, 88:0.007, 66:0.015, AQs:0.002, AJs:0.114, ATs:0.008, AJo:0.026, KTs:0.012, KQo:0.006` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA:0.987, JJ:0.001, TT:0.156, 55:0.001, AKs:0.201, AQs:0.034, AJs:0.002, ATs:0.012, A9s:0.003, A8s:0.038, A7s:0.025, A6s:0.028, A2s:0.001, AJo:0.326, ATo:0.203, A8o:0.027, A6o:0.009, A5o:0.015, A4o:0.100, A3o:0.057, A2o:0.152` },
+              { action: "ALLIN", min: 0.05, range: `KK:0.999, QQ, JJ:0.996, TT:0.814, 99:0.172, 88:0.033, 77:0.097, 66:0.730, 55:0.290, 44:0.532, 33:0.407, AKs:0.799, AQs:0.965, AJs:0.885, ATs:0.980, A9s:0.018, A8s:0.122, A7s:0.877, A6s:0.876, A5s-A4s, A3s:0.999, A2s:0.998, AQo+, AJo:0.004, KJs+, KTs:0.984, K9s:0.131, K8s:0.001, K7s:0.137, K6s:0.005, K5s:0.024, K4s:0.046, K3s:0.011, KQo:0.994, KJo:0.763, QJs, QTs:0.817, Q9s:0.006` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingHJopen",
+        label: "HJvsBTN defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 20,
+          facing: "HJ open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+           options: ["Fold","call", "3bet 5.5bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.013, KK:0.001, JJ:0.003, TT:0.030, 99:0.021, 88:0.007, 66:0.015, AQs:0.002, AJs:0.114, ATs:0.008, AJo:0.026, KTs:0.012, KQo:0.006` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA:0.987, JJ:0.001, TT:0.156, 55:0.001, AKs:0.201, AQs:0.034, AJs:0.002, ATs:0.012, A9s:0.003, A8s:0.038, A7s:0.025, A6s:0.028, A2s:0.001, AJo:0.326, ATo:0.203, A8o:0.027, A6o:0.009, A5o:0.015, A4o:0.100, A3o:0.057, A2o:0.152` },
+              { action: "ALLIN", min: 0.05, range: `KK:0.999, QQ, JJ:0.996, TT:0.814, 99:0.172, 88:0.033, 77:0.097, 66:0.730, 55:0.290, 44:0.532, 33:0.407, AKs:0.799, AQs:0.965, AJs:0.885, ATs:0.980, A9s:0.018, A8s:0.122, A7s:0.877, A6s:0.876, A5s-A4s, A3s:0.999, A2s:0.998, AQo+, AJo:0.004, KJs+, KTs:0.984, K9s:0.131, K8s:0.001, K7s:0.137, K6s:0.005, K5s:0.024, K4s:0.046, K3s:0.011, KQo:0.994, KJo:0.763, QJs, QTs:0.817, Q9s:0.006` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingHJopen",
+        label: "HJvsSB defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "SB",
+          eff: 6,
+          facing: "HJ open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+           options: ["Fold","call", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `88:0.115, 77:0.025, 66:0.483, A8s:0.999, A7s:0.004, A5s:0.002, A9o:0.001, KJs:0.998, KQo:0.118, QJs:0.010` },
+              { action: "ALLIN", min: 0.05, range: `AA, KK:0.999, QQ, JJ:0.996, TT:0.814, 99:0.172, 88:0.033, 77:0.097, 66:0.730, 55:0.290, 44:0.532, 33:0.407, AKs:0.799, AQs:0.965, AJs:0.885, ATs:0.980, A9s:0.018, A8s:0.122, A7s:0.877, A6s:0.876, A5s-A4s, A3s:0.999, A2s:0.998, AQo+, AJo:0.004, KJs+, KTs:0.984, K9s:0.131, K8s:0.001, K7s:0.137, K6s:0.005, K5s:0.024, K4s:0.046, K3s:0.011, KQo:0.994, KJo:0.763, QJs, QTs:0.817, Q9s:0.006` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      }, 
+      {
+        id: "facingCOopen",
+        label: "COvsSB defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "SB",
+          eff: 6,
+          facing: "CO open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+           options: ["Fold","call", "3bet 5.5bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `66:0.034, 55:0.824, 44:0.086, A3s:0.003, A2s:0.966, A5o:0.043, A4o:0.117, K8s:0.591, K7s:0.861, K6s:0.206, K5s:0.001, K9o:0.001, QJs:0.001, QTs:0.009, Q9s, Q8s:0.001, QJo:0.514, JTs, J9s:0.077, T9s:0.296` },
+              { action: "ALLIN", min: 0.05, range: `77+, 66:0.966, 55:0.176, 44:0.022, A4s+, A3s:0.997, A2s:0.034, A7o+, A6o:0.028, A5o:0.956, A4o:0.148, K9s+, K8s:0.409, K7s:0.137, KTo+, K9o:0.422, QJs:0.999, QTs:0.991, QJo:0.071` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      }, 
+      {
+        id: "facingBTNopen",
+        label: "BTNvsSB defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "SB",
+          eff: 6,
+          facing: "BTN open 2.0x",
+          stacks: [19, 30, 16, 6, 14],
+          options: ["Fold","call", "3bet 5.5bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `66:0.041, 55:0.132, A4s:0.003, A3s:0.002, A2s:0.002, A5o:0.001, A4o:0.096, A3o:0.024, K8s:0.055, K7s:0.103, K6s:0.044, K5s:0.026, K9o:0.034, QJs:0.001, QTs:0.037, Q9s:0.108, QJo:0.019, JTs:0.827, J9s:0.001, JTo:0.001, T9s:0.033` },
+              { action: "ALLIN", min: 0.05, range: `77+, 66:0.959, 55:0.868, 44:0.003, A5s+, A4s:0.997, A3s:0.998, A2s:0.998, A6o+, A5o:0.999, A4o:0.903, A3o:0.150, A2o:0.001, K9s+, K8s:0.944, KTo+, K9o:0.848, QJs:0.999, QTs:0.963, Q9s:0.001, QJo:0.784, QTo:0.002, JTs:0.105` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "HJ open 2",
+        label: "HJ openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "HJ",
+          eff: 6,
+          facing: "Unopened",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `KK+, 55:0.198, 44:0.001, AKs:0.006, AJs:0.044, ATs:0.609, A9s:0.001, ATo:0.001, A9o:0.211, A8o:0.058, A7o:0.268, A6o:0.524, A5o:0.049, A4o:0.196, A3o:0.001, KJo:0.042, KTo:0.041, QJo:0.024` },
+          { action: "ALLIN", min: 0.05, range: `QQ-66, 55:0.802, 44:0.999, 33, 22:0.001, AKs:0.994, AQs, AJs:0.956, ATs:0.391, A9s:0.999, A8s-A2s, AJo+, ATo:0.999, A9o:0.789, A8o:0.942, A7o:0.732, A5o:0.951, K9s+, KQo, KJo:0.958, QTs+, Q9s:0.989, QJo:0.831, JTs, J9s:0.996, T9s` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "CO open 2",
+        label: "CO openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "CO",
+          eff: 14,
+          facing: "Unopened",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `JJ+, TT:0.487, 99:0.307, 88:0.409, 77:0.682, 66:0.088, 55:0.021, AKs, AQs:0.820, AJs:0.999, ATs:0.648, A7s:0.004, A6s:0.843, A4s:0.071, A3s:0.010, A2s:0.377, AKo:0.263, AJo:0.154, ATo:0.996, A9o:0.999, A8o:0.587, A7o:0.198, A6o:0.251, A5o:0.721, A4o:0.154, K9s:0.001, KQo:0.782, KJo, KTo:0.484, QJo:0.637` },
+          { action: "ALLIN", min: 0.05, range: `TT:0.513, 99:0.693, 88:0.591, 77:0.318, 66:0.392, 55:0.137, AQs:0.180, AJs:0.001, ATs:0.352, A9s-A8s, A7s:0.996, A6s:0.157, A5s, A4s:0.929, A3s:0.990, A2s:0.622, AKo:0.737, AQo, AJo:0.846, ATo:0.004, KTs+, K9s:0.314, KQo:0.218, QTs+, JTs` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "BTN open 2",
+        label: "BTN openrange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 25,
+          facing: "Unopened",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","open 2bb", "ALLIN"],
+        }),
+        bands: [
+          { action: "open 2bb", min: 0.05, range: `QKK+, QQ:0.008, JJ:0.229, TT:0.009, 99:0.997, 88:0.747, 77:0.496, 66:0.161, 55:0.012, AKs, AJs:0.826, ATs:0.812, A9s:0.970, A8s:0.336, AKo:0.030, AJo:0.441, ATo:0.839, A9o, A8o:0.107, A7o:0.191, A6o:0.539, A5o:0.019, A4o:0.134, A3o:0.088, A2o:0.174, K3s:0.001, K9o:0.569, K8o:0.971, K7o:0.189, K6o:0.336, K5o:0.446, K4o:0.048, Q7s:0.002, Q6s:0.001, Q5s:0.004, Q4s:0.552, Q3s:0.253, Q2s:0.148, Q9o:0.586, Q8o:0.002, J7s:0.221, J6s:0.331, J5s:0.586, J4s:0.495, J9o:0.479, T8s:0.003, T7s:0.921, T6s:0.776, T5s:0.006, T9o:0.302, T8o:0.001, 98s:0.798, 97s:0.034, 96s:0.001, 87s:0.440, 86s:0.023, 76s:0.109, 75s:0.004, 65s:0.059, 54s:0.158` },
+          { action: "ALLIN", min: 0.05, range: `QQ:0.992, JJ:0.771, TT:0.991, 99:0.003, 88:0.253, 77:0.504, 66:0.839, 55:0.988, 44-22, AQs, AJs:0.174, ATs:0.188, A9s:0.030, A8s:0.664, A7s-A2s, AKo:0.970, AQo, AJo:0.559, ATo:0.161, A8o:0.893, A7o:0.809, A6o:0.461, A5o:0.981, A4o:0.866, A3o:0.912, A2o:0.826, K4s+, K3s:0.999, K2s, KTo+, K9o:0.431, K8o:0.003, K7o:0.007, Q8s+, Q7s:0.998, Q6s:0.999, Q5s:0.996, Q4s:0.447, Q3s:0.689, Q2s:0.227, QTo+, Q9o:0.023, J8s+, J7s:0.777, J6s:0.001, JTo, T9s, T8s:0.996, T7s:0.078, 98s:0.200, 87s:0.378, 76s:0.183, 65s:0.009` },
+        ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingHJopen 2",
+        label: "BBvsHJ defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BB",
+          eff: 6,
+          facing: "HJ open 2.0x",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","call", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA, 66:0.991, 44:0.213, A8s:0.004, A7s:0.181, A6s, A5s:0.008, A4s:0.997, A3s:0.090, A2s:0.600, A7o:0.222, A6o:0.001, A5o:0.043, KQs:0.002, KJs:0.013, KTs:0.153, K9s:0.996, K8s-K7s, K6s:0.063, K5s:0.981, K4s:0.861, K3s:0.999, K2s:0.998, KQo:0.919, KJo:0.949, KTo:0.574, K8o:0.005, QTs+, Q9s:0.997, Q8s, Q7s:0.023, Q6s:0.007, Q5s:0.013, Q4s:0.001, Q3s:0.003, QJo:0.998, QTo:0.059, JTs:0.999, J9s-J8s, J7s:0.868, J5s:0.001, J4s:0.002, JTo:0.987, J9o:0.004, T9s:0.999, T8s, T7s:0.555, 97s+, 95s:0.001, 98o:0.018, 87s, 86s:0.378, 85s:0.935, 87o:0.014, 76s:0.994, 75s:0.998, 74s:0.003, 65s:0.843, 64s:0.002, 54s:0.926, 53s:0.571, 52s:0.005, 43s:0.016, 42s:0.001` },
+              { action: "ALLIN", min: 0.05, range: `KK-77, 66:0.009, 55, 44:0.787, 33:0.999, 22:0.999, A9s+, A8s:0.996, A7s:0.819, A5s:0.992, A4s:0.003, A3s:0.910, A2s:0.400, A8o+, A7o:0.777, A5o:0.064, KQs:0.998, KJs:0.987, KTs:0.847, K9s:0.001, KQo:0.081, KJo:0.051` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },  
+      {
+        id: "facingBTNopen 2",
+        label: "BBvsBTN defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BB",
+          eff: 10,
+          facing: "BTN open 2.0x",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","call", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.384, 66:0.136, A8s:0.079, A7s:0.166, A6s:0.663, A5s:0.206, A4s:0.132, A3s:0.012, A2s:0.005, A8o:0.341, A7o:0.389, A6o:0.001, A5o:0.854, A4o:0.173, A3o:0.178, KQs, KJs:0.993, KTs:0.996, K9s-K8s, K7s:0.999, K6s:0.416, K5s:0.999, K4s:0.142, K3s:0.013, KTo+, K9o:0.217, QJs:0.656, QTs:0.394, Q9s, Q8s:0.998, Q7s:0.990, Q6s:0.096, Q5s:0.134, Q4s:0.939, Q3s:0.320, Q2s:0.005, QTo+, Q9o:0.002, JTs:0.021, J9s:0.999, J8s:0.938, J7s:0.774, J6s:0.001, JTo:0.926, T9s:0.755, T8s:0.989, T7s:0.124, 98s:0.476, 87s:0.995, 86s:0.001, 76s:0.623, 75s:0.001, 65s:0.901, 64s:0.019, 54s:0.999, 53s:0.150` },
+              { action: "ALLIN", min: 0.05, range: `AA:0.616, KK-77, 66:0.864, 55-22, A9s+, A8s:0.921, A7s:0.834, A6s:0.337, A5s:0.794, A4s:0.868, A3s:0.988, A2s:0.995, A9o+, A8o:0.659, A7o:0.086, A6o:0.001, A5o:0.146, A4o:0.657, A3o:0.531, A2o:0.233, KJs:0.007, KTs:0.004, QJs:0.344, QTs:0.606, Q8s:0.001, JTs:0.979, J9s:0.001, J8s:0.060, JTo:0.073, T9s:0.245, T8s:0.010, 98s:0.039` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },       
+      {
+        id: "facingHJopen 2",
+        label: "HJvsBTN defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 6,
+          facing: "HJ open 2.0x",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","call", "3bet 5.5bb", "3bet 8.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.081, TT:0.009, 99:0.001, 88:0.031, 77:0.012, 66:0.007, ATs:0.013, A9s:0.004, A8s:0.169, A7s:0.037, ATo:0.003, A9o:0.009, A8o:0.001, QJs:0.029` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA:0.918, KK:0.954, QQ:0.499, JJ:0.447, TT:0.941, 99:0.953, 88:0.934, 77:0.729, 66:0.068, 55:0.709, 44:0.002, AQs:0.316, AJs:0.382, ATs:0.100, A9s:0.570, A8s:0.502, A7s:0.624, A6s:0.026, A5s:0.169, A4s:0.347, A3s:0.688, A2s:0.762, AKo:0.001, AQo:0.154, AJo:0.981, ATo:0.983, A9o:0.643, KQs:0.002, KJs:0.724, KTs:0.486, K9s:0.180, K8s:0.225, K5s:0.088, KQo:0.178, KJo:0.004, QJs:0.038` },
+              { action: "3bet 8.0bb", min: 0.05, range: `AA:0.002, KK:0.046, QQ:0.017, JJ:0.003, TT:0.012, 99:0.036, 88:0.009, 77:0.004, 66:0.001, 55:0.018, AKs:0.014, AQs:0.003, AJs:0.020, ATs:0.002, A9s:0.003, A8s:0.007, A7s:0.017, A6s:0.004, A5s:0.013, A4s:0.003, A3s:0.004, A2s:0.001, AQo:0.019, AJo:0.018, ATo:0.010, A9o:0.007, KQs:0.005, KTs:0.021, K8s:0.006, K7s:0.001, KQo:0.013, KJo:0.001, QJs:0.001` },
+              { action: "ALLIN", min: 0.05, range: `QQ:0.485, JJ:0.551, TT:0.038, 99:0.010, 88:0.024, 77:0.255, 66:0.002, 55:0.268, AKs:0.985, AQs:0.681, AJs:0.598, ATs:0.885, A9s:0.423, A8s:0.321, A7s:0.267, A5s:0.817, A4s:0.597, A3s:0.296, A2s:0.214, AKo:0.999, AQo:0.827, AJo:0.001, ATo:0.005, A9o:0.003, KQs:0.993, KJs:0.275, KTs:0.485, K9s:0.281, K8s:0.189, K7s:0.011, K5s:0.057, KQo:0.022, QJs:0.002` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingCOopen 2",
+        label: "COvsBTN defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "BTN",
+          eff: 14,
+          facing: "CO open 2.0x",
+          stacks: [6, 14, 25, 30, 10],
+          options: ["Fold","call", "3bet 5.5bb", "3bet 8.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `AA:0.455, KK:0.008, JJ:0.352, TT:0.876, 99:0.821, 88:0.943, 77:0.144, 66:0.048, AQs:0.012, AJs:0.999, ATs:0.913, A9s:0.690, A8s:0.200, A7s:0.001, A6s:0.003, AQo:0.459, AJo, ATo:0.294, KJs:0.206, KTs:0.537, K9s:0.011, K7s:0.013, K6s:0.186, K4s:0.074, KQo:0.143, KJo:0.212, QJs:0.668, QTs:0.890, JTs:0.061, T9s:0.001, 87s:0.006, 76s:0.050, 65s:0.225, 64s:0.001, 54s:0.425` },
+              { action: "3bet 5.5bb", min: 0.05, range: `AA:0.545, KK:0.555, QQ:0.430, JJ:0.525, TT:0.075, AKs:0.007, AQs:0.553, AQo:0.316, ATo:0.222, A8o:0.032, A7o:0.034, A6o:0.120, A5o:0.001, A4o:0.410, A3o:0.068, A2o:0.135, K7s:0.101, K6s:0.078, K4s:0.187, K3s:0.108, K2s:0.083, KQo:0.002, KJo:0.485, KTo:0.001, K7o:0.004, K3o:0.003, K2o:0.004, Q7s:0.001, Q3s:0.002, QJo:0.165` },
+              { action: "3bet 8.0bb", min: 0.05, range: `KK:0.305, JJ:0.120, TT:0.049, 88:0.003, 77:0.008, 66:0.006, 55:0.004, 44:0.002, 33:0.002, 22:0.003, AKs:0.071, AQs:0.001, ATs:0.030, A9s:0.043, A8s:0.016, A7s:0.003, A6s:0.016, A5s:0.002, A3s:0.002, A2s:0.001, AKo:0.047, AQo:0.085, ATo:0.009, KJs:0.043, KTs:0.304, K9s:0.138, K7s:0.099, K6s:0.008, K5s:0.018, K4s:0.023, K3s:0.010, K2s:0.002, KQo:0.068, KJo:0.229, KTo:0.017, K4o:0.009, K2o:0.005` },
+              { action: "ALLIN", min: 0.05, range: `KK:0.132, QQ:0.570, JJ:0.004, 77:0.094, 66:0.037, 55:0.021, 44:0.052, 33:0.012, 22:0.004, AKs:0.922, AQs:0.434, ATs:0.057, A9s:0.262, A8s:0.784, A7s:0.995, A6s:0.980, A5s:0.997, A4s:0.999, A3s:0.998, A2s:0.998, AKo:0.952, AQo:0.140, A5o:0.002, A4o:0.013, A2o:0.001, KQs, KJs:0.752, KTs:0.158, K9s:0.301, K8s:0.003, K7s:0.420, K6s:0.105, K5s:0.018, K4s:0.231, K3s:0.012, KQo:0.787, KJo:0.004, QJs:0.332, QTs:0.041` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      },
+      {
+        id: "facingHJopen",
+        label: "BTNvsSB defendRange",
+        questionBuilder: (hand) => ({
+          hand,
+          pos: "SB",
+          eff: 25,
+          facing: "BTN open 2.0x",
+          stacks: [6, 14, 25, 30, 10],
+           options: ["Fold","call", "3bet 5.0bb", "3bet 8.0bb", "ALLIN"],
+        }),
+        bands: [
+              { action: "call", min: 0.05, range: `KK:0.337, QQ:0.999, JJ:0.951, TT-88, 77:0.990, 66:0.987, 55:0.959, 44:0.621, 33:0.021, 22:0.017, AQs:0.224, AJs:0.696, ATs:0.560, A9s:0.463, A8s:0.001, AQo:0.992, AJo:0.938, ATo:0.290, A9o:0.386, KQs:0.163, KJs:0.110, KTs:0.166, K9s:0.999, K8s:0.054, K6s:0.001, K4s:0.001, KQo:0.324, KJo:0.349, KTo:0.536, K9o:0.979, QJs:0.995, QTs:0.995, Q9s:0.999, Q8s:0.994, Q7s:0.874, Q6s:0.714, Q5s:0.203, Q4s:0.456, Q3s:0.001, QJo:0.973, QTo:0.496, JTs:0.907, J9s:0.983, J8s:0.518, J7s:0.423, JTo:0.245, T9s:0.994, T8s:0.926, T7s:0.428, 98s:0.999, 97s:0.447, 87s:0.688, 86s:0.817, 85s:0.001, 76s:0.698, 75s:0.184, 65s:0.291, 64s:0.536, 54s:0.909, 53s:0.749, 43s:0.045` },
+              { action: "3bet 5.0bb", min: 0.05, range: `AA, KK:0.027, QQ:0.001, JJ:0.049, 44:0.001, 22:0.014, AKs:0.793, AQs:0.768, AJs:0.303, AKo:0.026, AQo:0.001, A9o:0.485, A8o:0.173, A7o:0.008, A6o:0.052, A4o:0.002, A3o:0.002, A2o:0.009, K8o:0.109, K7o:0.006, K6o:0.021, K4o:0.102, K3o:0.004, K2o:0.015, Q8s:0.005, Q7s:0.089, Q6s:0.050, Q5s:0.005, Q4s:0.273, Q3s:0.111, Q2s:0.313, QJo:0.024, QTo:0.133, Q9o:0.001, J9s:0.011, J8s:0.469, J7s:0.301, J6s:0.354, J5s:0.062, J4s:0.316, J3s:0.274, J2s:0.295, JTo:0.503, J9o:0.001, T9s:0.003, T8s:0.015, T7s:0.547, T6s:0.452, T3s:0.137, T2s:0.016, T8o:0.002, 98s:0.001, 97s:0.007, 87s:0.032, 86s:0.046, 84s:0.003, 82s:0.001, 76s:0.005, 75s:0.234, 74s:0.245, 73s:0.004, 72s:0.004, 65s:0.002, 64s:0.318, 63s:0.274, 54s:0.004, 53s:0.106, 52s:0.001, 43s:0.825, 42s:0.010, 32s:0.142` },
+              { action: "3bet 8.0bb", min: 0.05, range: `KK:0.476, AKs:0.204, AQs:0.007, AKo:0.086, A9o:0.124, A8o:0.020, A7o:0.008, A6o:0.007, K9o:0.001, K8o:0.052, K7o:0.104, K6o:0.066, K5o:0.031, K4o:0.069, K3o:0.203, K2o:0.169, Q3s:0.003, Q2s:0.002, QTo:0.027, J5s:0.003, J3s:0.008, J2s:0.004, JTo:0.079, T7s:0.007, T6s:0.044, T5s:0.002` },
+              { action: "ALLIN", min: 0.05, range: `KK:0.160, 77:0.010, 66:0.013, 55:0.041, 44:0.378, 33:0.978, 22:0.969, AKs:0.003, AQs:0.001, ATs:0.440, A9s:0.537, A8s:0.999, A7s-A2s, AKo:0.888, AQo:0.007, AJo:0.062, ATo:0.710, A9o:0.004, A8o:0.807, A7o:0.984, A6o:0.941, A5o, A4o:0.998, A3o:0.998, A2o:0.991, KQs:0.837, KJs:0.890, KTs:0.834, K9s:0.001, K8s:0.945, K7s:0.999, K6s:0.999, K5s, K4s:0.998, K3s:0.999, K2s, KQo:0.676, KJo:0.651, KTo:0.464, K9o:0.001, K8o:0.053, K7o:0.623, K6o:0.359, K5o:0.332, K4o:0.157, K3o:0.028, QJs:0.005, QTs:0.005, Q9s:0.001, Q8s:0.001, Q7s:0.006, Q6s:0.006, Q5s:0.004, Q4s:0.007, Q3s:0.009, QJo:0.002, QTo:0.001, JTs:0.093, T8s:0.053, 87s:0.278, 86s:0.002, 76s:0.291, 75s:0.002, 74s:0.001, 65s:0.705, 64s:0.077, 54s:0.084, 53s:0.039, 43s:0.014` },
+            ],
+        answerBuilder: (pattern, hand, _weight, optionsBB) =>
+          ({ index: answerByRangeSpec(optionsBB, hand, pattern.bands, "fold", 0.5) })
+      }, 
+                                       
+    ]
+  },
+]);
